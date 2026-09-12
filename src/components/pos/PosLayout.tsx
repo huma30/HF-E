@@ -7,12 +7,14 @@ import {
   Order,
   StoreSettings,
   SelectedModifier,
+  Promo,
 } from '../../types';
 import { PricingEngine } from '../../services/pricingEngine';
 import { PosPaymentModal } from './PosPaymentModal';
 import { PosHoldOrdersModal, HeldOrder } from './PosHoldOrdersModal';
 import { ThermalReceiptModal } from './ThermalReceiptModal';
 import { ProductModifierModal } from '../customer/ProductModifierModal';
+import { BatchModifierModal } from '../customer/BatchModifierModal';
 import { useAuth } from '../../context/AuthContext';
 import {
   Search,
@@ -35,6 +37,7 @@ interface PosLayoutProps {
   categories: Category[];
   modifierGroups: ModifierGroup[];
   settings: StoreSettings | null;
+  promos: Promo[];
   onExitPos: () => void;
   onOpenAdmin?: () => void;
 }
@@ -44,6 +47,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   categories,
   modifierGroups,
   settings,
+  promos,
   onExitPos,
   onOpenAdmin,
 }) => {
@@ -56,9 +60,11 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   // Active POS Cart state (distinct from customer's personal cart)
   const [posCart, setPosCart] = useState<CartItem[]>([]);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [mobilePosTab, setMobilePosTab] = useState<'PRODUCTS' | 'ORDER'>('PRODUCTS');
 
   // Modals state
   const [modifierModalProduct, setModifierModalProduct] = useState<Product | null>(null);
+  const [batchModifierProduct, setBatchModifierProduct] = useState<Product | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
   const [heldOrders, setHeldOrders] = useState<HeldOrder[]>([]);
@@ -87,19 +93,35 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
     return posCart.reduce((sum, item) => sum + item.lineTotal, 0);
   }, [posCart]);
 
-  const total = Math.max(0, subtotal - discountAmount);
+  // Automatic Mix & Match quantity-based promotion
+  const mixMatchResult = useMemo(() => {
+    return PricingEngine.calculateMixMatchDiscounts(posCart, promos);
+  }, [posCart, promos]);
+
+  const mixMatchDiscount = mixMatchResult.discount;
+  const totalDiscount = mixMatchDiscount + discountAmount;
+  const total = Math.max(0, subtotal - totalDiscount);
 
   // Fast add product to POS cart
   const handleProductClick = (product: Product) => {
     if (!product.isAvailable) return;
+    const category = categories.find((c) => c.id === product.categoryId);
+    const isBatchCategory =
+      category?.batchModifierEnabled === true &&
+      !!category.batchModifierGroupId;
+
+    if (isBatchCategory) {
+      setBatchModifierProduct(product);
+      return;
+    }
+
     const prodModGroups = modifierGroups.filter(
       (g) => product.modifierGroupIds?.includes(g.id) && g.isActive
     );
-    // If product has modifiers, open modifier popup
+
     if (prodModGroups.length > 0) {
       setModifierModalProduct(product);
     } else {
-      // Direct quick add
       handleAddLineItem(product, 1, []);
     }
   };
@@ -108,14 +130,19 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
     product: Product,
     quantity: number,
     selectedModifiers: SelectedModifier[],
-    notes?: string
+    notes?: string,
+    batchModifiers: import('../../types').BatchModifierSelection[] = []
   ) => {
     const safeNotes = typeof notes === 'string' ? notes.trim() : '';
     const modSignature = (selectedModifiers || [])
       .map((m) => `${m.groupId}:${m.item?.id || ''}`)
       .sort()
       .join('|');
-    const cartItemId = `pos_${product.id}_${modSignature}_${safeNotes}`;
+    const batchSignature = (batchModifiers || [])
+      .map((b) => `${b.categoryId}:${b.modifierGroupId}:${(b.selectedModifiers || []).map((m) => m.modifierId).sort().join(',')}`)
+      .sort()
+      .join('|');
+    const cartItemId = `pos_${product.id}_${modSignature}_${batchSignature}_${safeNotes}`;
     const modifiersPrice = PricingEngine.calculateModifiersPrice(selectedModifiers || []);
 
     setPosCart((prev) => {
@@ -143,6 +170,8 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
           modifiersPrice,
           lineTotal,
           notes,
+          categoryId: product.categoryId,
+          batchModifiers: batchModifiers.length > 0 ? batchModifiers : undefined,
         };
         return [...prev, newItem];
       }
@@ -255,8 +284,31 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
 
       {/* Main Split Layout: Catalog Grid (Left) + Register Bill (Right) */}
       <div className="flex-1 flex flex-col lg:flex-row max-w-7xl w-full mx-auto p-3 sm:p-4 gap-4 overflow-hidden">
+        {/* Mobile POS navigation */}
+        <div className="lg:hidden sticky top-0 z-20 flex gap-2 mb-2">
+          <button
+            onClick={() => setMobilePosTab('PRODUCTS')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
+              mobilePosTab === 'PRODUCTS'
+                ? 'bg-[#2E1A47] text-white shadow-md'
+                : 'bg-white text-gray-600 border border-gray-200'
+            }`}
+          >
+            Menu
+          </button>
+          <button
+            onClick={() => setMobilePosTab('ORDER')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
+              mobilePosTab === 'ORDER'
+                ? 'bg-[#FF4500] text-white shadow-md'
+                : 'bg-white text-gray-600 border border-gray-200'
+            }`}
+          >
+            Pesanan ({posCart.reduce((s, i) => s + i.quantity, 0)})
+          </button>
+        </div>
         {/* Left: Products & Search Section */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={`flex-1 flex flex-col min-w-0 ${mobilePosTab === 'ORDER' ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search bar & Category scroll */}
           <div className="clay-card p-3 mb-3 space-y-2.5">
             {/* Search input */}
@@ -348,7 +400,15 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         </div>
 
         {/* Right: Cashier Register Bill Panel */}
-        <div className="w-full lg:w-96 clay-card flex flex-col justify-between p-4 shadow-xl shrink-0 h-[650px] lg:h-auto">
+        <div className={`${mobilePosTab === 'PRODUCTS' ? 'hidden lg:flex' : 'flex'} w-full lg:w-96 clay-card flex-col justify-between p-4 shadow-xl shrink-0 h-[calc(100vh-120px)] lg:h-auto`}>
+          {/* Mobile back button */}
+          <button
+            onClick={() => setMobilePosTab('PRODUCTS')}
+            className="lg:hidden mb-3 w-full py-2 rounded-xl bg-gray-100 text-[#2E1A47] text-xs font-bold"
+          >
+            ← Kembali ke Menu
+          </button>
+
           {/* Bill Header */}
           <div className="flex items-center justify-between pb-3 border-b border-gray-100">
             <div className="flex items-center gap-2">
@@ -450,6 +510,14 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
                 <span>Subtotal:</span>
                 <span className="font-bold text-gray-900">Rp {subtotal.toLocaleString('id-ID')}</span>
               </div>
+
+              {mixMatchDiscount > 0 && (
+                <div className="flex justify-between text-emerald-600 font-semibold">
+                  <span>Diskon Mix & Match:</span>
+                  <span>- Rp {mixMatchDiscount.toLocaleString('id-ID')}</span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center">
                 <span>Potongan Kasir:</span>
                 <input
@@ -493,6 +561,41 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         onAddToCart={handleAddLineItem}
       />
 
+      {/* Batch Modifier Dialog */}
+      {batchModifierProduct && (() => {
+        const category = categories.find((c) => c.id === batchModifierProduct.categoryId);
+        const group = category?.batchModifierGroupId
+          ? modifierGroups.find((g) => g.id === category.batchModifierGroupId)
+          : undefined;
+
+        if (!category || !group) return null;
+
+        return (
+          <BatchModifierModal
+            isOpen={!!batchModifierProduct}
+            onClose={() => setBatchModifierProduct(null)}
+            categoryId={category.id}
+            categoryName={category.name}
+            modifierGroup={group}
+            isRequired={category.batchModifierRequired !== false}
+            minSelections={category.batchModifierMinSelection}
+            maxSelections={category.batchModifierMaxSelection}
+            targetQuantity={1}
+            mode={category.batchModifierMode || 'POOL'}
+            onSave={(selection) => {
+              handleAddLineItem(
+                batchModifierProduct,
+                1,
+                [],
+                undefined,
+                [selection]
+              );
+              setBatchModifierProduct(null);
+            }}
+          />
+        );
+      })()}
+
       {/* POS Payment Dialog */}
       <PosPaymentModal
         isOpen={isPaymentModalOpen}
@@ -502,6 +605,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         discount={discountAmount}
         total={total}
         cashierName={adminProfile?.name || 'Kasir'}
+        settings={settings}
         onPaymentSuccess={(order) => {
           setLastCompletedOrder(order);
           setPosCart([]);

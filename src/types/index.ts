@@ -203,6 +203,7 @@ export interface CartItem {
   lineTotal: number;
   notes?: string;
   categoryId?: string;
+  batchModifiers?: BatchModifierSelection[];
 }
 
 export interface DeliveryArea {

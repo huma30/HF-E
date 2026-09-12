@@ -396,6 +396,7 @@ function MainApp() {
           categories={categories}
           modifierGroups={modifierGroups}
           settings={settings}
+          promos={promos}
           onExitPos={handleBackToStorefront}
           onOpenAdmin={() => setViewMode('ADMIN')}
         />
