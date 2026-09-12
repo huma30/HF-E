@@ -1,0 +1,6 @@
+{
+  "name": "HUMA",
+  "description": "Platform F&B Commerce & POS Kasir Modern untuk HUMA Perum Gina. Order via Web & WhatsApp, Kasir POS terintegrasi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

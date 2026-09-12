@@ -1,0 +1,302 @@
+{
+  "entities": {
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Store profile, operational hours, and ordering configuration",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "address": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "googleMapsUrl": { "type": "string" },
+        "operatingHours": {
+          "type": "object",
+          "properties": {
+            "open": { "type": "string" },
+            "close": { "type": "string" },
+            "days": { "type": "array" }
+          }
+        },
+        "manualStatusOverride": { "type": "string", "enum": ["AUTO", "FORCE_OPEN", "FORCE_CLOSED"] },
+        "isOrderingEnabled": { "type": "boolean" },
+        "minOrderAmount": { "type": "number" }
+      },
+      "required": ["storeName", "whatsapp"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Menu category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "icon": { "type": "string" },
+        "iconName": { "type": "string" },
+        "sortOrder": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "slug"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "F&B item with pricing, modifiers, and optional wholesale tiers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "isAvailable": { "type": "boolean" },
+        "isPopular": { "type": "boolean" },
+        "wholesaleEnabled": { "type": "boolean" },
+        "wholesaleRules": { "type": "array" },
+        "modifierGroupIds": { "type": "array" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "categoryId", "price"]
+    },
+    "ModifierGroup": {
+      "title": "ModifierGroup",
+      "description": "Customizable add-ons or options",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "isRequired": { "type": "boolean" },
+        "minSelection": { "type": "number" },
+        "maxSelection": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "items": { "type": "array" }
+      },
+      "required": ["name", "items"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer web or cashier POS order",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string" },
+        "type": { "type": "string", "enum": ["DELIVERY", "TAKEAWAY", "DINE_IN"] },
+        "status": { "type": "string", "enum": ["PENDING", "CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY", "COMPLETED", "CANCELLED"] },
+        "paymentStatus": { "type": "string", "enum": ["UNPAID", "PAID"] },
+        "paymentMethod": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "deliveryFee": { "type": "number" },
+        "discount": { "type": "number" },
+        "total": { "type": "number" },
+        "customer": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderNumber", "total", "items"]
+    },
+    "Promo": {
+      "title": "Promo",
+      "description": "Discount voucher",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "value": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["code", "value"]
+    },
+    "DeliveryArea": {
+      "title": "DeliveryArea",
+      "description": "Delivery radius zone",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "deliveryFee": { "type": "number" },
+        "minOrderAmount": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "deliveryFee"]
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "Storefront promotion banner",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["title", "imageUrl"]
+    },
+    "PlatformLink": {
+      "title": "PlatformLink",
+      "description": "External delivery aggregator link",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "url"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Staff administrative user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrative audit trail",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "performedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["action", "timestamp"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer member profile and loyalty points balance",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "address": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string" },
+        "totalSpent": { "type": "number" },
+        "totalOrders": { "type": "number" },
+        "pointsBalance": { "type": "number" },
+        "totalPointsEarned": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["name", "whatsapp", "pointsBalance"]
+    },
+    "PointLedgerEntry": {
+      "title": "PointLedgerEntry",
+      "description": "Atomic loyalty points ledger transaction history",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "balanceAfter": { "type": "number" },
+        "orderId": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "reason": { "type": "string" },
+        "adminName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["customerId", "type", "amount", "createdAt"]
+    },
+    "RewardItem": {
+      "title": "RewardItem",
+      "description": "Loyalty points redeemable reward item or discount voucher",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "pointsCost": { "type": "number" },
+        "discountValue": { "type": "number" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "description": { "type": "string" },
+        "stock": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "redeemCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "pointsCost", "type"]
+    },
+    "PointRedemption": {
+      "title": "PointRedemption",
+      "description": "Record of loyalty points redeemed for rewards",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "rewardId": { "type": "string" },
+        "rewardName": { "type": "string" },
+        "pointsSpent": { "type": "number" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["customerId", "rewardId", "pointsSpent", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/settings/{docId}": {
+      "schema": "StoreSettings",
+      "description": "Store settings and operating hours"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Food catalog categories"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Food catalog products"
+    },
+    "/modifierGroups/{modifierGroupId}": {
+      "schema": "ModifierGroup",
+      "description": "Product customization modifiers"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer and POS orders"
+    },
+    "/promos/{promoId}": {
+      "schema": "Promo",
+      "description": "Promotional discount codes"
+    },
+    "/deliveryAreas/{deliveryAreaId}": {
+      "schema": "DeliveryArea",
+      "description": "Delivery zones"
+    },
+    "/banners/{bannerId}": {
+      "schema": "Banner",
+      "description": "Hero banner slides"
+    },
+    "/platformLinks/{platformLinkId}": {
+      "schema": "PlatformLink",
+      "description": "External ordering platforms"
+    },
+    "/admins/{userId}": {
+      "schema": "AdminUser",
+      "description": "Staff users and roles"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit activity logs"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer members and loyalty points"
+    },
+    "/pointLedger/{ledgerId}": {
+      "schema": "PointLedgerEntry",
+      "description": "Audit trail for loyalty point transactions"
+    },
+    "/rewards/{rewardId}": {
+      "schema": "RewardItem",
+      "description": "Loyalty catalog redeemable rewards"
+    },
+    "/pointRedemptions/{redemptionId}": {
+      "schema": "PointRedemption",
+      "description": "Redemption log for rewards"
+    }
+  }
+}

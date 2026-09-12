@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #2E1A47;
+    --accent: #FF4500;
+    --secondary: #E1AD01;
+    --bg-main: #FBFBFC;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-main);
+    color: #2E1A47;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+/* Claymorphism & Liquid UI helper utilities */
+.clay-card {
+  background: #FFFFFF;
+  border-radius: 1.25rem;
+  box-shadow: 
+    0 10px 25px -5px rgba(46, 26, 71, 0.05),
+    0 8px 10px -6px rgba(46, 26, 71, 0.03),
+    inset 0 -3px 0 0 rgba(46, 26, 71, 0.04),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(46, 26, 71, 0.06);
+}
+
+.clay-card-interactive {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.clay-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 16px 30px -8px rgba(46, 26, 71, 0.09),
+    0 10px 12px -5px rgba(46, 26, 71, 0.04),
+    inset 0 -3px 0 0 rgba(46, 26, 71, 0.05);
+}
+
+.clay-button-primary {
+  background: linear-gradient(135deg, #FF5500 0%, #E63900 100%);
+  color: #FFFFFF;
+  border-radius: 9999px;
+  font-weight: 700;
+  box-shadow: 
+    0 8px 18px -4px rgba(255, 69, 0, 0.38),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -2px 0 0 rgba(0, 0, 0, 0.15);
+  transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.clay-button-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 
+    0 12px 22px -4px rgba(255, 69, 0, 0.45),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.clay-button-primary:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: 
+    0 4px 10px -2px rgba(255, 69, 0, 0.3),
+    inset 0 2px 2px 0 rgba(0, 0, 0, 0.2);
+}
+
+.clay-button-secondary {
+  background: #FFFFFF;
+  color: #2E1A47;
+  border: 1px solid rgba(46, 26, 71, 0.1);
+  border-radius: 9999px;
+  font-weight: 600;
+  box-shadow: 
+    0 4px 10px -2px rgba(46, 26, 71, 0.04),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  transition: all 0.18s ease;
+}
+
+.clay-button-secondary:hover {
+  background: #F7F5FA;
+  border-color: rgba(46, 26, 71, 0.18);
+  transform: translateY(-1px);
+}
+
+.clay-button-secondary:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.clay-button-accent {
+  background: linear-gradient(135deg, #2E1A47 0%, #1F1130 100%);
+  color: #FFFFFF;
+  border-radius: 9999px;
+  font-weight: 700;
+  box-shadow: 
+    0 8px 18px -4px rgba(46, 26, 71, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  transition: all 0.18s ease;
+}
+
+.clay-button-accent:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+/* Liquid navigation bar */
+.liquid-nav {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(46, 26, 71, 0.07);
+  box-shadow: 
+    0 12px 30px -10px rgba(46, 26, 71, 0.08),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Hide scrollbars cleanly while preserving touch smooth scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
