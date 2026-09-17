@@ -40,6 +40,17 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   pointsRedeemRate: 100, // 1 point = Rp 100 diskon (100 poin = Rp 10.000)
   pointsRounding: 'FLOOR',
   maxPointsPerOrder: 100,
+  footerDescription: 'Pilihan kuliner lokal terpercaya untuk warga Perum Gina dan sekitarnya. Seblak otentik rempah kencur, mie jebew pedas gurih, baso aci, dan aneka minuman segar.',
+  footerDeliveryNote: 'Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya.',
+  footerBottomNote: 'Dibuat dengan penuh rasa bersahabat untuk seluruh warga.',
+  footerCopyright: '© 2026 HUMA — All Rights Reserved.',
+  isFooterEnabled: true,
+  footerShowPlatforms: true,
+  receiptFooterMessage: 'Terima kasih atas pesanan Anda!',
+  receiptFooterNote: 'Simpan struk ini sebagai bukti transaksi sah',
+  receiptFooterShowTagline: true,
+  receiptFooterCustomText: '',
+  receiptFooterShowGoogleReview: false,
 };
 
 export const DEFAULT_CATEGORIES: Category[] = [

@@ -13,9 +13,26 @@ export const StoreInfoFooter: React.FC<StoreInfoFooterProps> = ({
   platformLinks,
   onOpenAdmin,
 }) => {
+  if (settings?.isFooterEnabled === false) {
+    return null;
+  }
+
   const address = settings?.address || 'Perum Gina Blok B No. 12';
   const whatsapp = settings?.whatsapp || '085878775527';
   const tagline = settings?.tagline || 'Jajan dekat rasa bersahabat';
+  const footerDesc =
+    settings?.footerDescription ||
+    'Pilihan kuliner lokal terpercaya untuk warga Perum Gina dan sekitarnya. Seblak otentik rempah kencur, mie jebew pedas gurih, baso aci, dan aneka minuman segar.';
+  const deliveryNote =
+    settings?.footerDeliveryNote ||
+    'Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya.';
+  const bottomNote =
+    settings?.footerBottomNote || 'Dibuat dengan rasa bersahabat untuk seluruh pelanggan.';
+  const copyrightText =
+    settings?.footerCopyright ||
+    `© ${new Date().getFullYear()} ${settings?.storeName || 'HUMA'} — All Rights Reserved.`;
+  const showPlatforms = settings?.footerShowPlatforms !== false;
+
   const googleMapsUrl =
     settings?.googleMapsUrl ||
     `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
@@ -49,12 +66,12 @@ export const StoreInfoFooter: React.FC<StoreInfoFooterProps> = ({
               </span>
             </div>
             <p className="text-xs text-[#FF4500] font-bold mt-1">"{tagline}"</p>
-            <p className="text-xs text-gray-500 mt-2 max-w-sm leading-relaxed">
-              Pilihan kuliner lokal terpercaya untuk warga Perum Gina dan sekitarnya. Seblak otentik rempah kencur, mie jebew pedas gurih, baso aci, dan aneka minuman segar.
+            <p className="text-xs text-gray-500 mt-2 max-w-sm leading-relaxed whitespace-pre-line">
+              {footerDesc}
             </p>
 
             {/* Platform Links (GoFood, ShopeeFood) */}
-            {activePlatforms.length > 0 && (
+            {showPlatforms && activePlatforms.length > 0 && (
               <div className="mt-4">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
                   Juga Tersedia di:
@@ -125,8 +142,8 @@ export const StoreInfoFooter: React.FC<StoreInfoFooterProps> = ({
                   {settings?.operatingHours?.close || '22:00'} WIB
                 </span>
               </div>
-              <p className="text-[11px] text-gray-500 pl-6">
-                Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya.
+              <p className="text-[11px] text-gray-500 pl-6 whitespace-pre-line">
+                {deliveryNote}
               </p>
             </div>
           </div>
@@ -134,10 +151,11 @@ export const StoreInfoFooter: React.FC<StoreInfoFooterProps> = ({
 
         {/* Bottom Bar */}
         <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-3">
-          <p>© {new Date().getFullYear()} HUMA — All Rights Reserved.</p>
-          <div className="flex items-center gap-4">
+          <p>{copyrightText}</p>
+          <div className="flex items-center gap-4 flex-wrap justify-center">
             <p className="flex items-center gap-1">
-              Dibuat dengan <Heart className="w-3.5 h-3.5 text-[#FF4500] fill-[#FF4500]" /> untuk warga rasa bersahabat.
+              <span>{bottomNote}</span>
+              <Heart className="w-3.5 h-3.5 text-[#FF4500] fill-[#FF4500] shrink-0" />
             </p>
             {onOpenAdmin && (
               <button

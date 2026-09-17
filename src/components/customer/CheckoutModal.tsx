@@ -1,6 +1,7 @@
 import React, { useState, useId, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { useCart } from '../../context/CartContext';
+import { BatchModifierModal } from './BatchModifierModal';
 import {
   DeliveryArea,
   PaymentMethod,
@@ -15,6 +16,7 @@ import { FirestoreService } from '../../services/firestoreService';
 import { PricingEngine } from '../../services/pricingEngine';
 import { soundService } from '../../services/audioNotification';
 import { WhatsAppService } from '../../services/whatsappService';
+import { QrisPaymentDisplay } from '../common/QrisPaymentDisplay';
 import {
   MapPin,
   Clock,
@@ -68,6 +70,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     selectedDeliveryArea,
     setDeliveryArea,
     batchSelections,
+    setBatchSelection,
   } = useCart();
 
   const [customerName, setCustomerName] = useState('');
@@ -81,6 +84,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedAccount, setCopiedAccount] = useState(false);
   const [activeTab, setActiveTab] = useState<'INFO' | 'PAYMENT'>('INFO');
+
+  // Active category being configured for batch modifiers (e.g. bumbu gorengan)
+  const [activeBatchCategory, setActiveBatchCategory] = useState<{
+    category: Category;
+    group: ModifierGroup;
+    totalQty: number;
+  } | null>(null);
 
   // Idempotency key generated per modal open
   const formSessionKey = useId();
@@ -96,15 +106,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   // Total
   const total = Math.max(0, subtotal - discount + deliveryFee);
 
-  // Detect which categories in cart require Batch Modifiers
+  // Detect which categories in cart require Batch Modifiers (e.g., Aneka Gorengan bumbu)
   const batchModifierCategories = useMemo(() => {
     if (!categories || categories.length === 0 || !items || items.length === 0) return [];
     return categories
-      .filter((cat) => cat.batchModifierEnabled && cat.batchModifierGroupId)
+      .filter((cat) => (cat.batchModifierEnabled && cat.batchModifierGroupId) || cat.name.toLowerCase().includes('goreng'))
       .map((cat) => {
         const matchingItems = items.filter((it) => it.categoryId === cat.id);
         const totalQty = matchingItems.reduce((sum, it) => sum + it.quantity, 0);
-        const group = modifierGroups?.find((g) => g.id === cat.batchModifierGroupId);
+        const group = modifierGroups?.find(
+          (g) => g.id === cat.batchModifierGroupId || (cat.name.toLowerCase().includes('goreng') && g.name.toLowerCase().includes('bumbu'))
+        );
         return {
           category: cat,
           group,
@@ -118,18 +130,45 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   }, [categories, items, modifierGroups]);
 
   // Check if any required batch modifier category is incomplete
-  const hasIncompleteBatchModifiers = batchModifierCategories.some((entry) => {
-    const isReq = entry.category.batchModifierRequired !== false;
-    if (!isReq) return false;
-    const minSelections = entry.category.batchModifierMinSelection !== undefined
-      ? Math.max(1, Number(entry.category.batchModifierMinSelection))
-      : (entry.group.minSelection !== undefined ? Math.max(1, Number(entry.group.minSelection)) : 1);
-    const sel = batchSelections[entry.category.id];
-    const selectedCount = sel
-      ? (sel.selectedModifiers?.length ?? sel.options?.filter((o) => (o.quantity ?? 1) > 0).length ?? 0)
-      : 0;
-    return selectedCount < minSelections;
-  });
+  // Strict rule: For Aneka Gorengan or categories with batch modifiers, bumbu is ALWAYS required!
+  const hasIncompleteBatchModifiers = useMemo(() => {
+    return batchModifierCategories.some((entry) => {
+      const isGorengan = entry.category.name.toLowerCase().includes('goreng');
+      const isReq = isGorengan || entry.category.batchModifierRequired !== false;
+      if (!isReq) return false;
+
+      const minSelections = entry.category.batchModifierMinSelection !== undefined
+        ? Math.max(1, Number(entry.category.batchModifierMinSelection))
+        : (entry.group.minSelection !== undefined ? Math.max(1, Number(entry.group.minSelection)) : 1);
+
+      const sel = batchSelections[entry.category.id];
+      const selectedCount = sel
+        ? (sel.selectedModifiers?.length ?? sel.options?.filter((o) => (o.quantity ?? 1) > 0).length ?? 0)
+        : 0;
+
+      return selectedCount < minSelections;
+    });
+  }, [batchModifierCategories, batchSelections]);
+
+  // Helper to get first incomplete batch category
+  const getFirstIncompleteCategory = () => {
+    return batchModifierCategories.find((entry) => {
+      const isGorengan = entry.category.name.toLowerCase().includes('goreng');
+      const isReq = isGorengan || entry.category.batchModifierRequired !== false;
+      if (!isReq) return false;
+
+      const minSelections = entry.category.batchModifierMinSelection !== undefined
+        ? Math.max(1, Number(entry.category.batchModifierMinSelection))
+        : (entry.group.minSelection !== undefined ? Math.max(1, Number(entry.group.minSelection)) : 1);
+
+      const sel = batchSelections[entry.category.id];
+      const selectedCount = sel
+        ? (sel.selectedModifiers?.length ?? sel.options?.filter((o) => (o.quantity ?? 1) > 0).length ?? 0)
+        : 0;
+
+      return selectedCount < minSelections;
+    });
+  };
 
   // Cash calculation
   const parsedAmountPaid =
@@ -157,12 +196,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const validateDeliveryInfo = (): boolean => {
     setErrorMessage(null);
-    if (!customerName.trim()) {
-      setErrorMessage('Mohon masukkan nama pemesan.');
+
+    // Strict bumbu validation before payment:
+    if (hasIncompleteBatchModifiers) {
+      setErrorMessage('Pesanan Aneka Gorengan wajib memilih bumbu terlebih dahulu.');
+      const firstIncomplete = getFirstIncompleteCategory();
+      if (firstIncomplete) {
+        setActiveBatchCategory(firstIncomplete);
+      }
       return false;
     }
-    if (hasIncompleteBatchModifiers) {
-      setErrorMessage('Mohon lengkapi pilihan bumbu di keranjang sebelum melanjutkan.');
+
+    if (!customerName.trim()) {
+      setErrorMessage('Mohon masukkan nama pemesan.');
       return false;
     }
     if (serviceType === 'DELIVERY') {
@@ -185,6 +231,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   };
 
   const handleProceedToPayment = () => {
+    if (hasIncompleteBatchModifiers) {
+      setErrorMessage('Pesanan Aneka Gorengan wajib memilih bumbu (min. 1 rasa) sebelum lanjut ke pembayaran.');
+      const firstIncomplete = getFirstIncompleteCategory();
+      if (firstIncomplete) {
+        setActiveBatchCategory(firstIncomplete);
+      }
+      return;
+    }
+
     if (validateDeliveryInfo()) {
       setActiveTab('PAYMENT');
     }
@@ -195,6 +250,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     if (isProcessing) return; // Anti-double order guard
 
     setErrorMessage(null);
+
+    // 0. Strict validation: Never allow order submission without required bumbu
+    if (hasIncompleteBatchModifiers) {
+      setErrorMessage('Pesanan Aneka Gorengan wajib memilih bumbu sebelum menyelesaikan pembayaran.');
+      const firstIncomplete = getFirstIncompleteCategory();
+      if (firstIncomplete) {
+        setActiveBatchCategory(firstIncomplete);
+      }
+      setActiveTab('INFO');
+      return;
+    }
 
     // If still on info tab, transition to payment instead
     if (activeTab === 'INFO') {
@@ -454,25 +520,26 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   return (
                     <div
                       key={entry.category.id}
-                      className="p-2.5 bg-amber-50 rounded-xl border border-amber-300 shadow-2xs flex items-center justify-between gap-2"
+                      className="p-3 bg-amber-50 rounded-xl border border-amber-300 shadow-2xs flex items-center justify-between gap-2"
                     >
                       <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
                         <div>
                           <p className="text-xs font-extrabold text-amber-900">
-                            ⚠️ {groupName} belum lengkap
+                            ⚠️ {groupName} Belum Dipilih (Wajib)
                           </p>
-                          <p className="text-[10px] text-gray-600">
-                            Pilihan bumbu harus dilengkapi di keranjang belanja.
+                          <p className="text-[10px] text-amber-700">
+                            Wajib pilih minimal {minSelections || 1} bumbu tabur sebelum lanjut ke pembayaran.
                           </p>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={onClose}
-                        className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-200 rounded-lg hover:bg-amber-300 transition-colors shrink-0"
+                        onClick={() => setActiveBatchCategory(entry)}
+                        className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-all shrink-0 shadow-sm flex items-center gap-1 cursor-pointer animate-pulse"
                       >
-                        Ke Keranjang
+                        <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                        <span>Pilih Bumbu</span>
                       </button>
                     </div>
                   );
@@ -608,14 +675,36 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
           {/* Step 1 Next Button */}
           <div className="pt-2">
-            <button
-              type="button"
-              onClick={handleProceedToPayment}
-              className="w-full clay-button-primary py-3 px-4 flex items-center justify-center gap-2 text-sm font-bold shadow-md"
-            >
-              <span>Lanjut ke Pembayaran (Rp {total.toLocaleString('id-ID')})</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {hasIncompleteBatchModifiers ? (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstIncomplete = getFirstIncompleteCategory();
+                    if (firstIncomplete) {
+                      setActiveBatchCategory(firstIncomplete);
+                    }
+                  }}
+                  className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white ring-4 ring-amber-200 py-3.5 px-4 flex items-center justify-center gap-2 text-sm font-extrabold shadow-lg rounded-2xl cursor-pointer transition-all animate-pulse"
+                >
+                  <AlertCircle className="w-5 h-5 text-amber-100" />
+                  <span>Wajib Pilih Bumbu Gorengan Dahulu</span>
+                  <ArrowRight className="w-4 h-4 text-amber-200" />
+                </button>
+                <p className="text-[11px] text-amber-800 text-center font-semibold bg-amber-50 py-1.5 px-3 rounded-xl border border-amber-200">
+                  ⚠️ Pesanan Aneka Gorengan wajib memilih bumbu tabur/rasa sebelum lanjut ke pembayaran.
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleProceedToPayment}
+                className="w-full clay-button-primary py-3 px-4 flex items-center justify-center gap-2 text-sm font-bold shadow-md cursor-pointer"
+              >
+                <span>Lanjut ke Pembayaran (Rp {total.toLocaleString('id-ID')})</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -623,6 +712,35 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       {/* TAB 2: METODE PEMBAYARAN & KONFIRMASI */}
       {activeTab === 'PAYMENT' && (
         <div className="space-y-4">
+          {/* Blocking alert if bumbu was not selected */}
+          {hasIncompleteBatchModifiers && (
+            <div className="p-3.5 bg-amber-50 border-2 border-amber-400 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <h5 className="font-extrabold text-xs text-amber-950">
+                    Bumbu Gorengan Belum Dipilih!
+                  </h5>
+                  <p className="text-[11px] text-amber-800">
+                    Wajib pilih varian rasa bumbu sebelum lanjut menyelesaikan pesanan.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const firstIncomplete = getFirstIncompleteCategory();
+                  if (firstIncomplete) {
+                    setActiveBatchCategory(firstIncomplete);
+                  }
+                }}
+                className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-all shrink-0 shadow-sm flex items-center gap-1 cursor-pointer animate-pulse"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                <span>Pilih Bumbu</span>
+              </button>
+            </div>
+          )}
 
           {/* Payment Method */}
           <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 space-y-3">
@@ -750,24 +868,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     </span>
                   </div>
 
-                  {/* QRIS Barcode Image */}
-                  <div className="flex flex-col items-center bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
-                    <img
-                      src={settings?.qrisImageUrl || '/qris.png'}
-                      alt="Barcode QRIS HUMA FOOD"
-                      className="w-44 h-44 sm:w-52 sm:h-52 object-contain rounded-lg"
-                    />
-                    <a
-                      href={settings?.qrisImageUrl || '/qris.png'}
-                      download="QRIS_HUMA_FOOD.png"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 text-[11px] font-bold text-blue-700 hover:text-blue-900 underline flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>Unduh / Buka Barcode QRIS</span>
-                    </a>
-                  </div>
+                  {/* QRIS Barcode Display (Fail-safe with instant vector fallback) */}
+                  <QrisPaymentDisplay
+                    qrisImageUrl={settings?.qrisImageUrl}
+                    storeName={settings?.storeName || 'HUMA FOOD'}
+                    amount={total}
+                  />
 
                   {/* 5 Step by Step Instructions */}
                   <div className="space-y-1.5 bg-white/80 p-3 rounded-xl border border-blue-100 text-[11px] text-gray-700">
@@ -943,13 +1049,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <button
               id="btn-submit-order"
               type="submit"
-              disabled={isProcessing}
-              className="flex-1 clay-button-primary py-3 px-4 flex items-center justify-center gap-2 text-xs sm:text-sm font-bold shadow-lg disabled:opacity-60 cursor-pointer"
+              disabled={isProcessing || hasIncompleteBatchModifiers}
+              className={`flex-1 py-3 px-4 flex items-center justify-center gap-2 text-xs sm:text-sm font-bold shadow-lg rounded-2xl transition-all ${
+                hasIncompleteBatchModifiers
+                  ? 'bg-amber-500 text-white cursor-not-allowed opacity-90 ring-2 ring-amber-300'
+                  : 'clay-button-primary disabled:opacity-60 cursor-pointer'
+              }`}
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Memproses Pesanan...</span>
+                </>
+              ) : hasIncompleteBatchModifiers ? (
+                <>
+                  <AlertCircle className="w-4 h-4 text-amber-100 animate-bounce" />
+                  <span>Wajib Pilih Bumbu Sebelum Bayar</span>
                 </>
               ) : (
                 <>
@@ -967,6 +1082,35 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       )}
         </form>
       </Modal>
+
+      {/* Direct Batch Modifier Modal (Bumbu Selector) inside Checkout */}
+      {activeBatchCategory && (
+        <BatchModifierModal
+          isOpen={!!activeBatchCategory}
+          onClose={() => setActiveBatchCategory(null)}
+          categoryId={activeBatchCategory.category.id}
+          categoryName={activeBatchCategory.category.name}
+          modifierGroup={activeBatchCategory.group}
+          targetQuantity={activeBatchCategory.totalQty}
+          isRequired={true}
+          minSelections={
+            activeBatchCategory.category.batchModifierMinSelection !== undefined
+              ? Math.max(1, Number(activeBatchCategory.category.batchModifierMinSelection))
+              : (activeBatchCategory.group.minSelection !== undefined ? Math.max(1, Number(activeBatchCategory.group.minSelection)) : 1)
+          }
+          maxSelections={
+            activeBatchCategory.category.batchModifierMaxSelection !== undefined && Number(activeBatchCategory.category.batchModifierMaxSelection) > 0
+              ? Number(activeBatchCategory.category.batchModifierMaxSelection)
+              : (activeBatchCategory.group.maxSelection !== undefined && Number(activeBatchCategory.group.maxSelection) > 0 ? Number(activeBatchCategory.group.maxSelection) : 2)
+          }
+          currentSelection={batchSelections[activeBatchCategory.category.id]}
+          onSave={(selection) => {
+            setBatchSelection(activeBatchCategory.category.id, selection);
+            setActiveBatchCategory(null);
+            setErrorMessage(null);
+          }}
+        />
+      )}
     </>
   );
 };

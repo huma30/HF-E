@@ -23,6 +23,7 @@ import { AdminAuditLogs } from './AdminAuditLogs';
 import { AdminBackupImport } from './AdminBackupImport';
 import { AdminCustomers } from './AdminCustomers';
 import { AdminRewards } from './AdminRewards';
+import { AdminFooterManager } from './AdminFooterManager';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -43,6 +44,7 @@ import {
   X,
   Users,
   Award,
+  PanelBottom,
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -70,6 +72,7 @@ type AdminTab =
   | 'REWARDS'
   | 'DELIVERY'
   | 'BANNERS'
+  | 'FOOTER'
   | 'SETTINGS'
   | 'AUDIT'
   | 'BACKUP';
@@ -102,6 +105,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     { id: 'REWARDS', label: 'Katalog Hadiah', icon: Award },
     { id: 'DELIVERY', label: 'Area Pengantaran', icon: MapPin },
     { id: 'BANNERS', label: 'Banner Slider', icon: ImageIcon },
+    { id: 'FOOTER', label: 'Footer & Struk', icon: PanelBottom },
     { id: 'SETTINGS', label: 'Pengaturan Toko', icon: Settings },
     { id: 'AUDIT', label: 'Audit Log', icon: ShieldAlert },
     { id: 'BACKUP', label: 'Backup & Impor', icon: Database },
@@ -263,6 +267,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             categories={categories}
             modifierGroups={modifierGroups}
             onRefresh={onRefreshData}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
           />
         )}
         {activeTab === 'CATEGORIES' && (
@@ -300,6 +305,9 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         )}
         {activeTab === 'BANNERS' && (
           <AdminBannerManager banners={banners} onRefresh={onRefreshData} />
+        )}
+        {activeTab === 'FOOTER' && (
+          <AdminFooterManager settings={settings} onRefresh={onRefreshData} />
         )}
         {activeTab === 'SETTINGS' && (
           <AdminSettings settings={settings} onRefresh={onRefreshData} />

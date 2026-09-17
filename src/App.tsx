@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider, useCart } from './context/CartContext';
 import {
@@ -32,11 +32,27 @@ import { OrderSuccessModal } from './components/customer/OrderSuccessModal';
 import { StoreInfoFooter } from './components/customer/StoreInfoFooter';
 
 // Staff & Admin components
-import { AdminLoginModal } from './components/admin/AdminLoginModal';
-import { AdminLoginPage } from './components/admin/AdminLoginPage';
-import { AdminLayout } from './components/admin/AdminLayout';
-import { PosLayout } from './components/pos/PosLayout';
-import { CustomerRewardsModal } from './components/customer/CustomerRewardsModal';
+const AdminLoginModal = lazy(() =>
+  import('./components/admin/AdminLoginModal').then((m) => ({ default: m.AdminLoginModal }))
+);
+
+const AdminLoginPage = lazy(() =>
+  import('./components/admin/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage }))
+);
+
+const AdminLayout = lazy(() =>
+  import('./components/admin/AdminLayout').then((m) => ({ default: m.AdminLayout }))
+);
+
+const PosLayout = lazy(() =>
+  import('./components/pos/PosLayout').then((m) => ({ default: m.PosLayout }))
+);
+
+const CustomerRewardsModal = lazy(() =>
+  import('./components/customer/CustomerRewardsModal').then((m) => ({
+    default: m.CustomerRewardsModal,
+  }))
+);
 
 // Mobile Gesture Navigation
 import { useGestureBack } from './hooks/useGestureBack';
@@ -45,6 +61,14 @@ import { GestureBackIndicator } from './components/common/GestureBackIndicator';
 import { Search, Sparkles, UtensilsCrossed, Layers, Flame, ArrowUpDown } from 'lucide-react';
 
 type ViewMode = 'STOREFRONT' | 'POS' | 'ADMIN' | 'ADMIN_LOGIN';
+
+const LazyLoadFallback = () => (
+  <div className="min-h-screen bg-[#FBFBFC] flex items-center justify-center">
+    <div className="clay-card px-5 py-4 text-sm font-semibold text-gray-600">
+      Memuat panel HUMA...
+    </div>
+  </div>
+);
 
 function MainApp() {
   const { currentUser, role, adminProfile } = useAuth();
@@ -86,29 +110,30 @@ function MainApp() {
   // Initial Seed & Data Fetch with Staged First-Paint Prioritization
   const loadMasterData = async () => {
     try {
-      // Priority 1: Critical for storefront first-paint (categories, products, banners, settings)
-      const [prods, cats, bnrs, sets] = await Promise.all([
+      // Priority 1: Critical for storefront first-paint & menu configuration
+      // Including modifierGroups ensures modifiers (glaze, isi, topping) are NEVER missing on customer phone
+      const [prods, cats, mods, bnrs, sets] = await Promise.all([
         FirestoreService.getProducts(),
         FirestoreService.getCategories(),
+        FirestoreService.getModifierGroups(),
         FirestoreService.getBanners(),
         FirestoreService.getStoreSettings(),
       ]);
 
       setProducts(prods);
       setCategories(cats);
+      setModifierGroups(mods);
       setBanners(bnrs);
       setSettings(sets);
-      setIsLoading(false); // Immediately unblock UI as soon as storefront core is ready
+      setIsLoading(false); // UI unblocks with products AND modifiers 100% available
 
-      // Priority 2: Secondary / Aux data (modifiers, promos, delivery areas, links)
-      const [mods, prms, areas, links] = await Promise.all([
-        FirestoreService.getModifierGroups(),
+      // Priority 2: Secondary / Aux data (promos, delivery areas, links)
+      const [prms, areas, links] = await Promise.all([
         FirestoreService.getPromos(),
         FirestoreService.getDeliveryAreas(),
         FirestoreService.getPlatformLinks(),
       ]);
 
-      setModifierGroups(mods);
       setPromos(prms);
       setDeliveryAreas(areas);
       setPlatformLinks(links);
@@ -373,7 +398,7 @@ function MainApp() {
   // If in Isolated Admin Login Page
   if (viewMode === 'ADMIN_LOGIN') {
     return (
-      <>
+      <Suspense fallback={<LazyLoadFallback />}>
         <GestureBackIndicator gestureState={gestureState} label="Kembali ke Beranda" />
         <AdminLoginPage
           settings={settings}
@@ -382,32 +407,32 @@ function MainApp() {
           }}
           onBackToStorefront={handleBackToStorefront}
         />
-      </>
+      </Suspense>
     );
   }
 
   // If in POS Mode
   if (viewMode === 'POS') {
     return (
-      <>
+      <Suspense fallback={<LazyLoadFallback />}>
         <GestureBackIndicator gestureState={gestureState} label="Keluar POS" />
         <PosLayout
           products={products}
           categories={categories}
           modifierGroups={modifierGroups}
-          settings={settings}
           promos={promos}
+          settings={settings}
           onExitPos={handleBackToStorefront}
           onOpenAdmin={() => setViewMode('ADMIN')}
         />
-      </>
+      </Suspense>
     );
   }
 
   // If in Admin Dashboard Mode
   if (viewMode === 'ADMIN') {
     return (
-      <>
+      <Suspense fallback={<LazyLoadFallback />}>
         <GestureBackIndicator gestureState={gestureState} label="Ke Beranda" />
         <AdminLayout
           products={products}
@@ -422,7 +447,7 @@ function MainApp() {
           onOpenPos={() => setViewMode('POS')}
           onBackToStorefront={handleBackToStorefront}
         />
-      </>
+      </Suspense>
     );
   }
 
@@ -549,12 +574,14 @@ function MainApp() {
       />
 
       {/* Customer Rewards & Points Modal (Kotak Hadiah) */}
-      <CustomerRewardsModal
-        isOpen={isRewardsModalOpen}
-        onClose={() => setIsRewardsModalOpen(false)}
-        settings={settings}
-        products={products}
-      />
+      <Suspense fallback={null}>
+        <CustomerRewardsModal
+          isOpen={isRewardsModalOpen}
+          onClose={() => setIsRewardsModalOpen(false)}
+          settings={settings}
+          products={products}
+        />
+      </Suspense>
 
       {/* Slide-over Cart Drawer */}
       <CartDrawer
@@ -597,13 +624,15 @@ function MainApp() {
       />
 
       {/* Admin / Staff Login Modal */}
-      <AdminLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onSuccess={() => {
-          setViewMode(pendingTarget);
-        }}
-      />
+      <Suspense fallback={null}>
+        <AdminLoginModal
+          isOpen={isLoginModalOpen}
+          onClose={() => setIsLoginModalOpen(false)}
+          onSuccess={() => {
+            setViewMode(pendingTarget);
+          }}
+        />
+      </Suspense>
     </div>
   );
 }

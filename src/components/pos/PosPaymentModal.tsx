@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { CartItem, Order, PaymentMethod, ServiceType, SplitPayment, StoreSettings, Customer } from '../../types';
+import { CartItem, Order, PaymentMethod, ServiceType, SplitPayment, StoreSettings, Customer, BatchModifierSelection } from '../../types';
 import { Modal } from '../common/Modal';
 import { FirestoreService } from '../../services/firestoreService';
 import { soundService } from '../../services/audioNotification';
 import { PricingEngine } from '../../services/pricingEngine';
+import { QrisPaymentDisplay } from '../common/QrisPaymentDisplay';
 import { Banknote, QrCode, CreditCard, Sparkles, CheckCircle, AlertCircle, Loader2, Image as ImageIcon, Award, Gift } from 'lucide-react';
 
 interface PosPaymentModalProps {
@@ -16,6 +17,8 @@ interface PosPaymentModalProps {
   cashierName: string;
   settings?: StoreSettings | null;
   onPaymentSuccess: (order: Order) => void;
+  batchModifiers?: BatchModifierSelection[];
+  mixMatchDiscount?: number;
 }
 
 export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
@@ -28,6 +31,8 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
   cashierName,
   settings,
   onPaymentSuccess,
+  batchModifiers,
+  mixMatchDiscount,
 }) => {
   const [customerName, setCustomerName] = useState('Pelanggan Kasir');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -155,6 +160,8 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
         amountPaid: payableTotal === 0 ? 0 : isSplitMode ? payableTotal : paymentMethod === 'CASH' ? parsedCash : payableTotal,
         change: payableTotal === 0 ? 0 : isSplitMode ? 0 : paymentMethod === 'CASH' ? change : 0,
         cashierName,
+        idempotencyKey: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        batchModifiers: batchModifiers && batchModifiers.length > 0 ? batchModifiers : undefined,
       };
 
       if (isSplitMode && splitPayments) {
@@ -430,31 +437,17 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
             {/* QRIS Display for Cashier / Customer */}
             {paymentMethod === 'QRIS' && (
               <div className="space-y-2 bg-blue-50/70 p-3.5 rounded-2xl border border-blue-200 text-center">
-                <div className="flex items-center justify-between text-xs font-bold text-blue-900 mb-1">
-                  <span>Pembayaran QRIS Statis / Dinamis</span>
-                  <span className="text-[#FF4500]">Rp {total.toLocaleString('id-ID')}</span>
+                <div className="space-y-2">
+                  <QrisPaymentDisplay
+                    qrisImageUrl={settings?.qrisImageUrl}
+                    storeName={settings?.storeName || 'HUMA FOOD'}
+                    amount={payableTotal}
+                    compact
+                  />
+                  <p className="text-[11px] text-blue-800 font-medium text-center">
+                    Tunjukkan barcode ini kepada pelanggan untuk discan via mobile banking / e-wallet.
+                  </p>
                 </div>
-                {settings?.qrisImageUrl ? (
-                  <div className="space-y-2">
-                    <div className="p-3 bg-white rounded-2xl border border-blue-200 inline-block shadow-sm">
-                      <img
-                        src={settings.qrisImageUrl}
-                        alt="QRIS Barcode HUMA"
-                        className="w-48 h-48 sm:w-56 sm:h-56 object-contain mx-auto"
-                      />
-                    </div>
-                    <p className="text-[11px] text-blue-800 font-medium">
-                      Tunjukkan barcode ini kepada pelanggan untuk discan via mobile banking / e-wallet.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-white rounded-xl border border-dashed border-blue-300 text-xs text-blue-700 space-y-1">
-                    <p className="font-bold">Gambar Barcode QRIS Belum Diunggah</p>
-                    <p className="text-[11px] text-gray-500">
-                      Unggah barcode QRIS toko Anda di menu <strong>Admin &gt; Pengaturan &gt; Barcode QRIS</strong>.
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </>
@@ -482,15 +475,13 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
             </div>
 
             {/* Split QRIS Image Preview if splitQris > 0 */}
-            {splitQris > 0 && settings?.qrisImageUrl && (
+            {splitQris > 0 && (
               <div className="p-2.5 bg-white rounded-xl border border-purple-200 text-center space-y-1">
-                <span className="text-[11px] font-bold text-purple-900 block">
-                  Scan QRIS: Rp {splitQris.toLocaleString('id-ID')}
-                </span>
-                <img
-                  src={settings.qrisImageUrl}
-                  alt="QRIS Split Payment"
-                  className="w-36 h-36 object-contain mx-auto border border-gray-100 rounded-lg p-1"
+                <QrisPaymentDisplay
+                  qrisImageUrl={settings?.qrisImageUrl}
+                  storeName={settings?.storeName || 'HUMA FOOD'}
+                  amount={splitQris}
+                  compact
                 />
               </div>
             )}

@@ -65,13 +65,21 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
         if (currentSelection.selectedModifiers && currentSelection.selectedModifiers.length > 0) {
           const ids = currentSelection.selectedModifiers
             .map((m) => m.modifierId)
-            .filter((id) => activeItems.some((it) => it.id === id));
+            .filter((id) =>
+              activeItems.some(
+                (it) => it.id === id && it.isAvailable !== false && it.status !== 'SOLD_OUT'
+              )
+            );
           setSelectedIds(ids.slice(0, safeMax));
         } else if (currentSelection.options && currentSelection.options.length > 0) {
           const ids = currentSelection.options
             .filter((o) => (o.quantity ?? 1) > 0)
             .map((o) => o.modifierId)
-            .filter((id) => activeItems.some((it) => it.id === id));
+            .filter((id) =>
+              activeItems.some(
+                (it) => it.id === id && it.isAvailable !== false && it.status !== 'SOLD_OUT'
+              )
+            );
           setSelectedIds(ids.slice(0, safeMax));
         } else {
           setSelectedIds([]);
@@ -84,6 +92,12 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
 
   // Toggle selection with strict upper limit guard
   const handleToggle = (item: ModifierItem) => {
+    const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
+    if (!isAvail) {
+      setFeedback(`Bumbu/opsi "${item.name}" saat ini sedang habis.`);
+      return;
+    }
+
     const isChecked = selectedIds.includes(item.id);
     if (isChecked) {
       setSelectedIds((prev) => prev.filter((id) => id !== item.id));
@@ -111,6 +125,15 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
   }, [selectedIds, activeItems]);
 
   const handleSave = () => {
+    const selectedItems = activeItems.filter((it) => selectedIds.includes(it.id));
+    const soldOutItem = selectedItems.find(
+      (it) => it.isAvailable === false || it.status === 'SOLD_OUT'
+    );
+    if (soldOutItem) {
+      setFeedback(`Opsi "${soldOutItem.name}" sedang habis. Harap batalkan pilihan tersebut.`);
+      return;
+    }
+
     if (isRequired && selectedIds.length < safeMin) {
       setFeedback(`Pilih minimal ${safeMin} bumbu terlebih dahulu.`);
       return;
@@ -120,7 +143,6 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
       return;
     }
 
-    const selectedItems = activeItems.filter((it) => selectedIds.includes(it.id));
     const options: BatchModifierOption[] = selectedItems.map((it) => ({
       modifierId: it.id,
       modifierName: it.name,
@@ -204,26 +226,33 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
         {/* Checkbox Options List - Scrollable if options are many */}
         <div className="space-y-1.5 max-h-[52vh] overflow-y-auto pr-1">
           {activeItems.map((item) => {
+            const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
             const isChecked = selectedIds.includes(item.id);
             const isAtLimit = selectedIds.length >= safeMax && !isChecked;
 
             return (
               <div
                 key={item.id}
-                onClick={() => handleToggle(item)}
-                className={`w-full p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer select-none transition-all ${
-                  isChecked
-                    ? 'bg-orange-50/70 border-[#FF4500] shadow-2xs'
+                onClick={() => {
+                  if (isAvail) handleToggle(item);
+                }}
+                className={`w-full p-3 rounded-xl border flex items-center justify-between gap-3 select-none transition-all ${
+                  !isAvail
+                    ? 'bg-gray-100/70 border-gray-200 opacity-60 cursor-not-allowed'
+                    : isChecked
+                    ? 'bg-orange-50/70 border-[#FF4500] shadow-2xs cursor-pointer'
                     : isAtLimit
-                    ? 'bg-gray-50/60 border-gray-200 opacity-60 hover:border-gray-300'
-                    : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50/60'
+                    ? 'bg-gray-50/60 border-gray-200 opacity-60 hover:border-gray-300 cursor-pointer'
+                    : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50/60 cursor-pointer'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {/* Custom Checkbox as in reference screenshot */}
                   <div
                     className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
-                      isChecked
+                      !isAvail
+                        ? 'border-gray-300 bg-gray-200 text-gray-400'
+                        : isChecked
                         ? 'bg-[#FF4500] border-[#FF4500] text-white shadow-xs'
                         : 'border-gray-300 bg-white'
                     }`}
@@ -233,16 +262,26 @@ export const BatchModifierModal: React.FC<BatchModifierModalProps> = ({
 
                   <span
                     className={`text-xs sm:text-sm truncate ${
-                      isChecked ? 'text-gray-900 font-bold' : 'text-gray-800 font-medium'
+                      !isAvail
+                        ? 'text-gray-400 line-through'
+                        : isChecked
+                        ? 'text-gray-900 font-bold'
+                        : 'text-gray-800 font-medium'
                     }`}
                   >
                     {item.name}
                   </span>
+
+                  {!isAvail && (
+                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 uppercase shrink-0">
+                      Habis
+                    </span>
+                  )}
                 </div>
 
                 <span
                   className={`text-xs sm:text-sm font-semibold shrink-0 ${
-                    item.price > 0 ? 'text-[#FF4500]' : 'text-[#FF4500]'
+                    !isAvail ? 'text-gray-400' : 'text-[#FF4500]'
                   }`}
                 >
                   {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}

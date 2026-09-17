@@ -95,13 +95,18 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
 
     const cleanItems = items
       .filter((it) => it.name.trim().length > 0)
-      .map((it, idx) => ({
-        id: it.id || `mod_${Date.now()}_${idx}`,
-        name: it.name.trim(),
-        price: Number(it.price) || 0,
-        isActive: it.isActive !== false,
-        sortOrder: idx + 1,
-      }));
+      .map((it, idx) => {
+        const isAvail = it.isAvailable !== false && it.status !== 'SOLD_OUT';
+        return {
+          id: it.id || `mod_${Date.now()}_${idx}`,
+          name: it.name.trim(),
+          price: Number(it.price) || 0,
+          isActive: it.isActive !== false,
+          isAvailable: isAvail,
+          status: (isAvail ? 'AVAILABLE' : 'SOLD_OUT') as 'AVAILABLE' | 'SOLD_OUT',
+          sortOrder: idx + 1,
+        };
+      });
 
     if (cleanItems.length === 0) {
       alert('Harap masukkan minimal 1 opsi varian/add-on untuk grup ini.');
@@ -144,6 +149,25 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
       } catch (err) {
         alert('Gagal menghapus grup modifier.');
       }
+    }
+  };
+
+  const handleToggleItemAvailability = async (group: ModifierGroup, itemId: string) => {
+    try {
+      const updatedItems = group.items.map((it) => {
+        if (it.id !== itemId) return it;
+        const currentAvail = it.isAvailable !== false && it.status !== 'SOLD_OUT';
+        const nextAvail = !currentAvail;
+        return {
+          ...it,
+          isAvailable: nextAvail,
+          status: (nextAvail ? 'AVAILABLE' : 'SOLD_OUT') as 'AVAILABLE' | 'SOLD_OUT',
+        };
+      });
+      await FirestoreService.updateModifierGroup(group.id, { items: updatedItems });
+      onRefresh();
+    } catch (err) {
+      alert('Gagal mengubah status ketersediaan modifier.');
     }
   };
 
@@ -365,17 +389,36 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
 
             {/* Items tags */}
             <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
-              {group.items.map((item) => (
-                <span
-                  key={item.id}
-                  className="px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-700 flex items-center gap-1.5"
-                >
-                  <span>{item.name}</span>
-                  <span className="text-[11px] text-[#FF4500] font-extrabold">
-                    {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}
-                  </span>
-                </span>
-              ))}
+              {group.items.map((item) => {
+                const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleToggleItemAvailability(group, item.id)}
+                    title={`Klik untuk ubah: ${isAvail ? 'Tersedia' : 'Habis'}`}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                      isAvail
+                        ? 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-700'
+                        : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                    }`}
+                  >
+                    <span className={isAvail ? '' : 'line-through'}>{item.name}</span>
+                    <span className="text-[11px] text-[#FF4500] font-extrabold">
+                      {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}
+                    </span>
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
+                        isAvail
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-200 text-rose-900'
+                      }`}
+                    >
+                      {isAvail ? 'Tersedia' : 'Habis'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -441,34 +484,53 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
             </div>
 
             <div className="space-y-2">
-              {items.map((item, idx) => (
-                <div key={item.id} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={item.name}
-                    onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
-                    placeholder="Nama Varian (cth: Level 1)"
-                    className="flex-1 text-xs p-2 bg-white rounded-xl border border-gray-200"
-                  />
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-400 font-semibold">+Rp</span>
+              {items.map((item, idx) => {
+                const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
+                return (
+                  <div key={item.id} className="flex items-center gap-2">
                     <input
-                      type="number"
-                      value={item.price}
-                      onChange={(e) => handleUpdateItem(idx, 'price', Number(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-24 text-xs p-2 bg-white rounded-xl border border-gray-200 font-bold"
+                      type="text"
+                      value={item.name}
+                      onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                      placeholder="Nama Varian (cth: Level 1)"
+                      className="flex-1 text-xs p-2 bg-white rounded-xl border border-gray-200"
                     />
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-400 font-semibold">+Rp</span>
+                      <input
+                        type="number"
+                        value={item.price}
+                        onChange={(e) => handleUpdateItem(idx, 'price', Number(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-20 text-xs p-2 bg-white rounded-xl border border-gray-200 font-bold"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextAvail = !isAvail;
+                        handleUpdateItem(idx, 'isAvailable' as any, nextAvail);
+                        handleUpdateItem(idx, 'status' as any, nextAvail ? 'AVAILABLE' : 'SOLD_OUT');
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[10px] font-bold border transition-colors shrink-0 ${
+                        isAvail
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                          : 'bg-rose-50 border-rose-300 text-rose-800'
+                      }`}
+                      title="Klik untuk ubah ketersediaan varian"
+                    >
+                      {isAvail ? 'Tersedia' : 'Habis'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(idx)}
+                      className="text-gray-400 hover:text-rose-600 p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveItem(idx)}
-                    className="text-gray-400 hover:text-rose-600 p-1"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

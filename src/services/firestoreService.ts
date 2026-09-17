@@ -37,6 +37,14 @@ import {
 } from '../types';
 import { errorService } from './errorService';
 import {
+  normalizeProductName,
+  normalizeSku,
+  getSafeRegistryDocId,
+  checkProductDuplicate,
+  auditCatalogDuplicates,
+  CatalogAuditResult,
+} from '../utils/productUtils';
+import {
   DEFAULT_STORE_SETTINGS,
   DEFAULT_CATEGORIES,
   DEFAULT_MODIFIER_GROUPS,
@@ -60,7 +68,7 @@ interface CacheHolder {
   lastFetched: number;
 }
 
-const PERSISTENT_CATALOG_KEY = 'huma_catalog_persistent_v1';
+const PERSISTENT_CATALOG_KEY = 'huma_catalog_persistent_v2';
 
 function readStoredCatalog(): Partial<CacheHolder> {
   if (typeof window === 'undefined') return {};
@@ -101,6 +109,111 @@ function persistCatalog(currentCache: CacheHolder) {
 }
 
 const initialStored = readStoredCatalog();
+
+// Firestore Quota Circuit Breaker
+const QUOTA_EXCEEDED_KEY = 'huma_firestore_quota_exceeded_timestamp';
+const QUOTA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes fallback before re-probing Firestore
+
+let memoryQuotaExceededTime = 0;
+
+export function isQuotaExceeded(): boolean {
+  if (memoryQuotaExceededTime > 0 && Date.now() - memoryQuotaExceededTime < QUOTA_COOLDOWN_MS) {
+    return true;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(QUOTA_EXCEEDED_KEY);
+      if (stored) {
+        const time = parseInt(stored, 10);
+        if (Date.now() - time < QUOTA_COOLDOWN_MS) {
+          memoryQuotaExceededTime = time;
+          return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}
+
+export function markQuotaExceeded(): void {
+  memoryQuotaExceededTime = Date.now();
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(QUOTA_EXCEEDED_KEY, String(memoryQuotaExceededTime));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// Persistent Order Storage for Offline/Quota Resiliency
+const PERSISTENT_ORDERS_KEY = 'huma_orders_persistent_v1';
+
+export function readStoredOrders(): Order[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PERSISTENT_ORDERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function persistStoredOrders(orders: Order[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PERSISTENT_ORDERS_KEY, JSON.stringify(orders.slice(0, 100)));
+  } catch {
+    // ignore
+  }
+}
+
+export function appendOrUpdateStoredOrder(order: Order): void {
+  const current = readStoredOrders();
+  const idx = current.findIndex((o) => o.id === order.id || o.orderNumber === order.orderNumber);
+  let updated: Order[];
+  if (idx >= 0) {
+    updated = [...current];
+    updated[idx] = { ...updated[idx], ...order };
+  } else {
+    updated = [order, ...current];
+  }
+  persistStoredOrders(updated);
+}
+
+// Persistent Customer Storage for Offline/Quota Resiliency
+const PERSISTENT_CUSTOMERS_KEY = 'huma_customers_persistent_v1';
+
+export function readStoredCustomers(): Customer[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PERSISTENT_CUSTOMERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function persistStoredCustomers(customers: Customer[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PERSISTENT_CUSTOMERS_KEY, JSON.stringify(customers.slice(0, 150)));
+  } catch {
+    // ignore
+  }
+}
 
 const cache: CacheHolder = {
   products: initialStored.products || null,
@@ -157,6 +270,9 @@ export class FirestoreService {
     if (!forceRefresh && cache.settings && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.settings;
     }
+    if (isQuotaExceeded() && cache.settings) {
+      return cache.settings;
+    }
 
     try {
       const docRef = doc(db, 'settings', 'general');
@@ -171,7 +287,10 @@ export class FirestoreService {
         cache.settings = DEFAULT_STORE_SETTINGS;
         return DEFAULT_STORE_SETTINGS;
       }
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.settings || DEFAULT_STORE_SETTINGS;
     }
   }
@@ -190,6 +309,9 @@ export class FirestoreService {
     if (!forceRefresh && cache.categories && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.categories;
     }
+    if (isQuotaExceeded() && cache.categories) {
+      return cache.categories;
+    }
 
     try {
       const colRef = collection(db, 'categories');
@@ -203,7 +325,10 @@ export class FirestoreService {
       }
       cache.categories = DEFAULT_CATEGORIES;
       return DEFAULT_CATEGORIES;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.categories || DEFAULT_CATEGORIES;
     }
   }
@@ -230,10 +355,13 @@ export class FirestoreService {
     if (!forceRefresh && cache.products && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.products;
     }
+    if (isQuotaExceeded() && cache.products) {
+      return cache.products;
+    }
 
     try {
       const colRef = collection(db, 'products');
-      const q = query(colRef, orderBy('sortOrder', 'asc'), limit(100));
+      const q = query(colRef, orderBy('sortOrder', 'asc'), limit(500));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
@@ -245,7 +373,10 @@ export class FirestoreService {
       cache.products = DEFAULT_PRODUCTS;
       cache.lastFetched = Date.now();
       return DEFAULT_PRODUCTS;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.products || DEFAULT_PRODUCTS;
     }
   }
@@ -253,22 +384,336 @@ export class FirestoreService {
   public static async saveProduct(product: Partial<Product> & { id?: string }): Promise<string> {
     const colRef = collection(db, 'products');
     const docId = product.id || doc(colRef).id;
-    const data = {
-      ...product,
+    const isNew = !product.id;
+
+    const rawName = product.name || '';
+    const normName = normalizeProductName(rawName);
+    const normSku = normalizeSku(product.sku);
+
+    if (!normName) {
+      throw new Error('VALIDATION_ERROR: Nama produk tidak boleh kosong.');
+    }
+
+    const cleanProductData: Product = {
       id: docId,
-      updatedAt: new Date().toISOString(),
+      name: rawName.trim(),
+      normalizedName: normName,
+      sku: normSku || undefined,
+      categoryId: product.categoryId || '',
+      description: (product.description || '').trim(),
+      price: Number(product.price) || 0,
+      costPrice: product.costPrice ? Number(product.costPrice) : undefined,
+      imageUrl: product.imageUrl || '',
+      isActive: product.isActive !== undefined ? product.isActive : true,
+      isAvailable: product.isAvailable !== undefined ? product.isAvailable : true,
+      isPopular: !!product.isPopular,
+      wholesaleEnabled: !!product.wholesaleEnabled,
+      wholesaleRules: product.wholesaleRules || [],
+      modifierGroupIds: product.modifierGroupIds || [],
+      sortOrder: product.sortOrder !== undefined ? product.sortOrder : 100,
       createdAt: product.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isDuplicate: product.isDuplicate || false,
+      canonicalProductId: product.canonicalProductId || undefined,
     };
-    await setDoc(doc(db, 'products', docId), sanitizeForFirestore(data), { merge: true });
+
+    const nameDocId = getSafeRegistryDocId('name', normName);
+    const skuDocId = normSku ? getSafeRegistryDocId('sku', normSku) : null;
+
+    // Database-level atomic duplicate check via Firestore Transaction
+    try {
+      await runTransaction(db, async (txn) => {
+        // 1. Check Name registry
+        const nameDocRef = doc(db, 'product_names', nameDocId);
+        const nameSnap = await txn.get(nameDocRef);
+        if (nameSnap.exists()) {
+          const regData = nameSnap.data();
+          if (regData.productId && regData.productId !== docId) {
+            throw new Error(`DUPLICATE_PRODUCT: Produk dengan nama '${rawName.trim()}' sudah terdaftar dalam sistem (ID: ${regData.productId}). Silakan gunakan produk yang sudah ada atau ubah nama produk.`);
+          }
+        }
+
+        // 2. Check SKU registry if specified
+        if (skuDocId) {
+          const skuDocRef = doc(db, 'product_skus', skuDocId);
+          const skuSnap = await txn.get(skuDocRef);
+          if (skuSnap.exists()) {
+            const skuRegData = skuSnap.data();
+            if (skuRegData.productId && skuRegData.productId !== docId) {
+              throw new Error(`DUPLICATE_SKU: SKU '${normSku}' sudah digunakan oleh produk lain (ID: ${skuRegData.productId}).`);
+            }
+          }
+        }
+
+        // If updating an existing product, deregister old name/sku if they changed
+        if (!isNew && cache.products) {
+          const oldProd = cache.products.find((p) => p.id === docId);
+          if (oldProd) {
+            const oldNormName = oldProd.normalizedName || normalizeProductName(oldProd.name);
+            if (oldNormName && oldNormName !== normName) {
+              txn.delete(doc(db, 'product_names', getSafeRegistryDocId('name', oldNormName)));
+            }
+            const oldNormSku = normalizeSku(oldProd.sku);
+            if (oldNormSku && oldNormSku !== normSku) {
+              txn.delete(doc(db, 'product_skus', getSafeRegistryDocId('sku', oldNormSku)));
+            }
+          }
+        }
+
+        // 3. Atomically register unique Name and SKU
+        txn.set(nameDocRef, {
+          productId: docId,
+          name: rawName.trim(),
+          normalizedName: normName,
+          updatedAt: new Date().toISOString(),
+        });
+
+        if (skuDocId) {
+          const skuDocRef = doc(db, 'product_skus', skuDocId);
+          txn.set(skuDocRef, {
+            productId: docId,
+            sku: normSku,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        // 4. Save Product document
+        const prodDocRef = doc(db, 'products', docId);
+        txn.set(prodDocRef, sanitizeForFirestore(cleanProductData), { merge: true });
+      });
+    } catch (err: any) {
+      if (err?.message?.startsWith('DUPLICATE_PRODUCT') || err?.message?.startsWith('DUPLICATE_SKU')) {
+        throw err;
+      }
+      // Fallback: in offline or permission-limited mode, enforce duplicate check against local/cache products
+      const currentProducts = cache.products || [];
+      const dupCheck = checkProductDuplicate({ name: rawName, sku: normSku, id: docId }, currentProducts);
+      if (dupCheck.isDuplicate) {
+        throw new Error(dupCheck.message || `DUPLICATE_PRODUCT: Produk '${rawName}' sudah tersedia.`);
+      }
+
+      // Safe write
+      await setDoc(doc(db, 'products', docId), sanitizeForFirestore(cleanProductData), { merge: true });
+    }
+
     cache.products = null; // Invalidate
     persistCatalog(cache);
     return docId;
   }
 
   public static async deleteProduct(id: string): Promise<void> {
+    try {
+      // Find existing product to clean up its registry doc
+      const prodDocRef = doc(db, 'products', id);
+      const prodSnap = await getDoc(prodDocRef);
+      if (prodSnap.exists()) {
+        const prod = prodSnap.data() as Product;
+        const normName = prod.normalizedName || normalizeProductName(prod.name);
+        const normSku = normalizeSku(prod.sku);
+
+        if (normName) {
+          try {
+            await deleteDoc(doc(db, 'product_names', getSafeRegistryDocId('name', normName)));
+          } catch (e) {
+            console.warn('[HUMA] Registry delete skipped:', e);
+          }
+        }
+        if (normSku) {
+          try {
+            await deleteDoc(doc(db, 'product_skus', getSafeRegistryDocId('sku', normSku)));
+          } catch (e) {
+            console.warn('[HUMA] SKU Registry delete skipped:', e);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[HUMA] Error preparing deleteProduct cleanup:', err);
+    }
+
     await deleteDoc(doc(db, 'products', id));
     cache.products = null;
     persistCatalog(cache);
+  }
+
+  /**
+   * Safe deduplication cleanup for existing catalog duplicates.
+   * Marks non-canonical duplicate products as inactive/duplicate and links them to canonical ID
+   * WITHOUT destroying or modifying historical orders!
+   */
+  public static async cleanupDuplicateProducts(
+    duplicateProductIds: string[],
+    canonicalMapping: Record<string, string>
+  ): Promise<{ deactivatedCount: number }> {
+    if (!duplicateProductIds || duplicateProductIds.length === 0) {
+      return { deactivatedCount: 0 };
+    }
+
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    let count = 0;
+
+    for (const dupId of duplicateProductIds) {
+      const canonicalId = canonicalMapping[dupId];
+      const docRef = doc(db, 'products', dupId);
+      batch.update(docRef, {
+        isActive: false,
+        isAvailable: false,
+        isDuplicate: true,
+        canonicalProductId: canonicalId || null,
+        updatedAt: now,
+      });
+      count++;
+    }
+
+    await batch.commit();
+
+    // Invalidate cache
+    cache.products = null;
+    persistCatalog(cache);
+
+    // Record audit log
+    try {
+      await this.logAudit({
+        action: 'DEDUPLICATE_PRODUCTS',
+        actorId: 'system',
+        actorEmail: 'system@humafood.local',
+        actorRole: 'SUPER_ADMIN',
+        targetType: 'PRODUCT_CATALOG',
+        targetId: 'catalog',
+        metadata: {
+          deactivatedCount: count,
+          details: `Safely deactivated ${count} duplicate products while preserving historical transaction references.`,
+        },
+      });
+    } catch (e) {
+      console.warn('[HUMA Audit] Log deduplication skipped:', e);
+    }
+
+    return { deactivatedCount: count };
+  }
+
+  /**
+   * Auto-delete duplicate menu products permanently from Firestore database.
+   * Purges duplicate menu items while keeping canonical items completely safe.
+   * Cleans up registry locks (ensuring canonical is properly registered),
+   * clears memory & localStorage catalog caches, logs the operation, and returns deleted list.
+   */
+  public static async autoDeleteDuplicateProducts(
+    duplicateProductIds?: string[],
+    canonicalMapping?: Record<string, string>
+  ): Promise<{ deletedCount: number; deletedNames: string[] }> {
+    const allProducts = await this.getProducts(true);
+    let targetDuplicateIds: string[] = [];
+    let mapping: Record<string, string> = canonicalMapping || {};
+
+    if (duplicateProductIds && duplicateProductIds.length > 0) {
+      targetDuplicateIds = duplicateProductIds;
+    } else {
+      const audit = auditCatalogDuplicates(allProducts);
+      targetDuplicateIds = audit.duplicateProductIds;
+      mapping = audit.canonicalMapping;
+    }
+
+    if (!targetDuplicateIds || targetDuplicateIds.length === 0) {
+      return { deletedCount: 0, deletedNames: [] };
+    }
+
+    const targetSet = new Set(targetDuplicateIds);
+    const productsToDelete = allProducts.filter((p) => targetSet.has(p.id));
+    const deletedNames: string[] = [];
+
+    // Delete in chunks of 250 to ensure safe Firestore batch limits (< 500)
+    const CHUNK_SIZE = 250;
+    for (let i = 0; i < productsToDelete.length; i += CHUNK_SIZE) {
+      const chunk = productsToDelete.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+
+      for (const prod of chunk) {
+        deletedNames.push(prod.name);
+        const docRef = doc(db, 'products', prod.id);
+        batch.delete(docRef);
+
+        const normName = prod.normalizedName || normalizeProductName(prod.name);
+        const normSku = normalizeSku(prod.sku);
+        const canonicalId = mapping[prod.id];
+
+        // Ensure canonical product retains name registry ownership
+        if (normName) {
+          const nameDocId = getSafeRegistryDocId('name', normName);
+          const nameRegRef = doc(db, 'product_names', nameDocId);
+          if (canonicalId) {
+            const canonicalProd = allProducts.find((p) => p.id === canonicalId && !targetSet.has(p.id));
+            if (canonicalProd) {
+              batch.set(
+                nameRegRef,
+                {
+                  productId: canonicalProd.id,
+                  name: canonicalProd.name,
+                  normalizedName: normName,
+                  updatedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              );
+            }
+          }
+        }
+
+        // SKU registry cleanup
+        if (normSku && !canonicalId) {
+          const skuRegRef = doc(db, 'product_skus', getSafeRegistryDocId('sku', normSku));
+          batch.delete(skuRegRef);
+        }
+      }
+
+      await batch.commit();
+    }
+
+    // Invalidate local memory & persistent cache
+    cache.products = null;
+    persistCatalog(cache);
+
+    // Record audit log
+    try {
+      await this.logAudit({
+        action: 'AUTO_DELETE_DUPLICATE_PRODUCTS',
+        actorId: 'admin',
+        actorEmail: 'admin@humafood.local',
+        actorRole: 'SUPER_ADMIN',
+        targetType: 'PRODUCT_CATALOG',
+        targetId: 'catalog',
+        metadata: {
+          deletedCount: deletedNames.length,
+          deletedNames,
+          deletedProductIds: targetDuplicateIds,
+          details: `Auto-deleted ${deletedNames.length} duplicate menu items permanently from database while keeping canonical items intact.`,
+        },
+      });
+    } catch (e) {
+      console.warn('[HUMA Audit] Log auto-delete skipped:', e);
+    }
+
+    return { deletedCount: deletedNames.length, deletedNames };
+  }
+
+  public static getAutoDeleteDuplicatesSetting(): boolean {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        return localStorage.getItem('huma_auto_delete_duplicates') === 'true';
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  public static setAutoDeleteDuplicatesSetting(enabled: boolean): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('huma_auto_delete_duplicates', enabled ? 'true' : 'false');
+      } catch (e) {
+        console.warn('Failed to save auto delete duplicates setting:', e);
+      }
+    }
   }
 
   /* =========================================================================
@@ -276,6 +721,9 @@ export class FirestoreService {
    * ========================================================================= */
   public static async getModifierGroups(forceRefresh = false): Promise<ModifierGroup[]> {
     if (!forceRefresh && cache.modifierGroups && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
+      return cache.modifierGroups;
+    }
+    if (isQuotaExceeded() && cache.modifierGroups) {
       return cache.modifierGroups;
     }
 
@@ -290,7 +738,10 @@ export class FirestoreService {
       }
       cache.modifierGroups = DEFAULT_MODIFIER_GROUPS;
       return DEFAULT_MODIFIER_GROUPS;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.modifierGroups || DEFAULT_MODIFIER_GROUPS;
     }
   }
@@ -317,6 +768,9 @@ export class FirestoreService {
     if (!forceRefresh && cache.deliveryAreas && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.deliveryAreas;
     }
+    if (isQuotaExceeded() && cache.deliveryAreas) {
+      return cache.deliveryAreas;
+    }
 
     try {
       const colRef = collection(db, 'deliveryAreas');
@@ -329,7 +783,10 @@ export class FirestoreService {
       }
       cache.deliveryAreas = DEFAULT_DELIVERY_AREAS;
       return DEFAULT_DELIVERY_AREAS;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.deliveryAreas || DEFAULT_DELIVERY_AREAS;
     }
   }
@@ -356,6 +813,9 @@ export class FirestoreService {
     if (!forceRefresh && cache.promos && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.promos;
     }
+    if (isQuotaExceeded() && cache.promos) {
+      return cache.promos;
+    }
 
     try {
       const colRef = collection(db, 'promos');
@@ -368,7 +828,10 @@ export class FirestoreService {
       }
       cache.promos = DEFAULT_PROMOS;
       return DEFAULT_PROMOS;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.promos || DEFAULT_PROMOS;
     }
   }
@@ -395,6 +858,9 @@ export class FirestoreService {
     if (!forceRefresh && cache.banners && Date.now() - cache.lastFetched < CACHE_TTL_MS) {
       return cache.banners;
     }
+    if (isQuotaExceeded() && cache.banners) {
+      return cache.banners;
+    }
 
     try {
       const colRef = collection(db, 'banners');
@@ -408,7 +874,10 @@ export class FirestoreService {
       }
       cache.banners = DEFAULT_BANNERS;
       return DEFAULT_BANNERS;
-    } catch {
+    } catch (err) {
+      if (errorService.classify(err) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
       return cache.banners || DEFAULT_BANNERS;
     }
   }
@@ -474,6 +943,15 @@ export class FirestoreService {
   }
 
   public static subscribeStoreSettings(callback: (settings: StoreSettings) => void): Unsubscribe {
+    // Immediately emit cached settings if present
+    if (cache.settings) {
+      callback(cache.settings);
+    }
+
+    if (isQuotaExceeded()) {
+      return () => {};
+    }
+
     const docRef = doc(db, 'settings', 'general');
     return onSnapshot(
       docRef,
@@ -481,13 +959,21 @@ export class FirestoreService {
         if (snap.exists()) {
           const data = snap.data() as StoreSettings;
           cache.settings = data;
+          persistCatalog(cache);
           callback(data);
         } else {
           callback(DEFAULT_STORE_SETTINGS);
         }
       },
       (error) => {
-        console.warn('[HUMA Firestore] subscribeStoreSettings error:', error);
+        const classification = errorService.classify(error);
+        if (classification === 'QUOTA_ERROR') {
+          markQuotaExceeded();
+          console.warn('[HUMA Firestore] Read quota reached in subscribeStoreSettings, using cached settings.');
+        } else {
+          console.warn('[HUMA Firestore] subscribeStoreSettings error:', error);
+        }
+        callback(cache.settings || DEFAULT_STORE_SETTINGS);
       }
     );
   }
@@ -614,7 +1100,54 @@ export class FirestoreService {
       }
     }
 
-    // 2. Generate unique order number
+    // 1.5. Validate required Batch Modifiers (Bumbu Guard)
+    if (orderInput.items && orderInput.items.length > 0) {
+      try {
+        const categories = await this.getCategories();
+        const batchCategories = categories.filter(
+          (c) => (c.batchModifierEnabled && c.batchModifierGroupId) || c.name.toLowerCase().includes('goreng')
+        );
+
+        for (const bCat of batchCategories) {
+          const isGorengan = bCat.name.toLowerCase().includes('goreng');
+          const isReq = isGorengan || bCat.batchModifierRequired !== false;
+          if (!isReq) continue;
+
+          const matchingItems = orderInput.items.filter((it) => it.categoryId === bCat.id);
+          const totalQty = matchingItems.reduce((sum, it) => sum + it.quantity, 0);
+
+          if (totalQty > 0) {
+            const sel = (orderInput.batchModifiers || []).find((bm) => bm.categoryId === bCat.id);
+            const count = sel
+              ? (sel.selectedModifiers?.length ?? sel.options?.filter((o) => (o.quantity ?? 1) > 0).length ?? 0)
+              : 0;
+            const minReq = bCat.batchModifierMinSelection !== undefined
+              ? Math.max(1, Number(bCat.batchModifierMinSelection))
+              : 1;
+
+            if (count < minReq) {
+              throw new Error('Pesanan Aneka Gorengan wajib memilih bumbu tabur terlebih dahulu sebelum dapat diproses.');
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.message && err.message.includes('wajib memilih bumbu')) {
+          throw err;
+        }
+        console.warn('[HUMA] Batch modifier backend validation skipped:', err);
+      }
+    }
+
+    // 2. Pricing and Total Integrity Enforcement
+    const computedSubtotal = (orderInput.items || []).reduce((sum, it) => {
+      const lineTotal = it.lineTotal !== undefined ? it.lineTotal : (it.unitPrice + (it.modifiersPrice || 0)) * it.quantity;
+      return sum + lineTotal;
+    }, 0);
+    const safeDiscount = Math.max(0, orderInput.discount || 0);
+    const safeDeliveryFee = Math.max(0, orderInput.deliveryFee || 0);
+    const computedTotal = Math.max(0, computedSubtotal - safeDiscount + safeDeliveryFee);
+
+    // 3. Generate unique order number
     const { orderNumber } = await this.generateOrderNumber();
     const orderDocRef = doc(collection(db, 'orders'));
     const orderId = orderDocRef.id;
@@ -625,12 +1158,26 @@ export class FirestoreService {
       id: orderId,
       orderNumber,
       createdAt,
+      subtotal: computedSubtotal > 0 ? computedSubtotal : orderInput.subtotal,
+      discount: safeDiscount,
+      deliveryFee: safeDeliveryFee,
+      total: computedTotal,
       status: orderInput.status || 'PENDING',
     };
 
     // 3. Save order document directly to Firestore (Allowed for both public customers and staff)
     const cleanOrder = sanitizeForFirestore(newOrder);
-    await setDoc(orderDocRef, cleanOrder);
+    try {
+      await setDoc(orderDocRef, cleanOrder);
+    } catch (saveErr) {
+      console.warn('[HUMA Firestore] Save order to Firestore deferred to local offline storage:', saveErr);
+      if (errorService.classify(saveErr) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
+    }
+
+    // Always update local persistent storage so the order is immediately visible and safe!
+    appendOrUpdateStoredOrder(newOrder);
 
     // 4. Update Daily Analytics document and Promo usage if permissions allow
     try {
@@ -696,40 +1243,67 @@ export class FirestoreService {
       updates.cancellationReason = cancellationReason;
     }
 
-    await updateDoc(orderRef, sanitizeForFirestore(updates));
+    try {
+      await updateDoc(orderRef, sanitizeForFirestore(updates));
+    } catch (upErr) {
+      console.warn('[HUMA Firestore] Update order status deferred to local offline storage:', upErr);
+      if (errorService.classify(upErr) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
+      }
+    }
+
+    // Always update local persistent storage so changes reflect immediately
+    appendOrUpdateStoredOrder({ id: orderId, ...updates } as Order);
 
     // If order is completed or cancelled, adjust analytics count
-    const snap = await getDoc(orderRef);
-    if (snap.exists()) {
-      const order = snap.data() as Order;
-      const today = (order.createdAt || new Date().toISOString()).substring(0, 10);
-      const analyticsDocRef = doc(db, 'analyticsDaily', today);
+    try {
+      const snap = await getDoc(orderRef);
+      if (snap.exists()) {
+        const order = snap.data() as Order;
+        const today = (order.createdAt || new Date().toISOString()).substring(0, 10);
+        const analyticsDocRef = doc(db, 'analyticsDaily', today);
 
-      if (newStatus === 'COMPLETED') {
-        await setDoc(analyticsDocRef, { completedOrders: increment(1) }, { merge: true });
-        // Award loyalty points to customer
-        try {
-          const settings = await this.getStoreSettings();
-          await this.earnPointsForOrder(order, settings);
-        } catch (pointErr) {
-          console.warn('[HUMA Loyalty] Error awarding points on completion:', pointErr);
-        }
-      } else if (newStatus === 'CANCELLED') {
-        await setDoc(analyticsDocRef, { cancelledOrders: increment(1) }, { merge: true });
-        // Reverse points earned from this order
-        try {
-          await this.reversePointsForCancelledOrder(order.id, order.orderNumber);
-        } catch (revErr) {
-          console.warn('[HUMA Loyalty] Error reversing points on cancellation:', revErr);
+        if (newStatus === 'COMPLETED') {
+          await setDoc(analyticsDocRef, { completedOrders: increment(1) }, { merge: true });
+          // Award loyalty points to customer
+          try {
+            const settings = await this.getStoreSettings();
+            await this.earnPointsForOrder(order, settings);
+          } catch (pointErr) {
+            console.warn('[HUMA Loyalty] Error awarding points on completion:', pointErr);
+          }
+        } else if (newStatus === 'CANCELLED') {
+          await setDoc(analyticsDocRef, { cancelledOrders: increment(1) }, { merge: true });
+          // Reverse points earned from this order
+          try {
+            await this.reversePointsForCancelledOrder(order.id, order.orderNumber);
+          } catch (revErr) {
+            console.warn('[HUMA Loyalty] Error reversing points on cancellation:', revErr);
+          }
         }
       }
+    } catch (analyticsErr) {
+      console.warn('[HUMA] Skipping order status analytics aggregation:', analyticsErr);
     }
   }
 
   /**
    * Real-time selective order listener for Admin/POS monitor (limited to recent 50 orders)
+   * With instant local cached order serving and quota exhaustion resilience
    */
   public static subscribeRecentOrders(callback: (orders: Order[]) => void): Unsubscribe {
+    // 1. Instantly deliver local stored orders so UI never remains blank
+    const localOrders = readStoredOrders();
+    if (localOrders.length > 0) {
+      callback(localOrders);
+    }
+
+    // 2. If quota limit is currently active, avoid triggering failed listeners
+    if (isQuotaExceeded()) {
+      console.warn('[HUMA Firestore] Daily read quota currently reached; serving orders from local storage cache.');
+      return () => {};
+    }
+
     const colRef = collection(db, 'orders');
     const q = query(colRef, orderBy('createdAt', 'desc'), limit(50));
 
@@ -737,10 +1311,24 @@ export class FirestoreService {
       q,
       (snapshot) => {
         const orders = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
+        persistStoredOrders(orders);
         callback(orders);
       },
       (error) => {
-        errorService.capture(error, { action: 'subscribeRecentOrders' });
+        const classification = errorService.classify(error);
+        if (classification === 'QUOTA_ERROR') {
+          markQuotaExceeded();
+          console.warn(
+            '[HUMA Firestore] Daily read quota limit reached during subscribeRecentOrders. Serving from local persistent cache.'
+          );
+        } else {
+          errorService.capture(error, { action: 'subscribeRecentOrders' });
+        }
+        // Fall back to stored orders on failure
+        const fallback = readStoredOrders();
+        if (fallback.length > 0) {
+          callback(fallback);
+        }
       }
     );
   }
@@ -1135,6 +1723,15 @@ export class FirestoreService {
    * Real-time listener for customers
    */
   public static subscribeCustomers(callback: (customers: Customer[]) => void): Unsubscribe {
+    const local = readStoredCustomers();
+    if (local.length > 0) {
+      callback(local);
+    }
+
+    if (isQuotaExceeded()) {
+      return () => {};
+    }
+
     const colRef = collection(db, 'customers');
     const q = query(colRef, limit(150));
 
@@ -1147,10 +1744,18 @@ export class FirestoreService {
             new Date(b.updatedAt || b.createdAt || 0).getTime() -
             new Date(a.updatedAt || a.createdAt || 0).getTime()
         );
+        persistStoredCustomers(customers);
         callback(customers);
       },
       (error) => {
-        errorService.capture(error, { action: 'subscribeCustomers' });
+        const classification = errorService.classify(error);
+        if (classification === 'QUOTA_ERROR') {
+          markQuotaExceeded();
+          console.warn('[HUMA Firestore] Read quota reached in subscribeCustomers, using local cache.');
+        } else {
+          errorService.capture(error, { action: 'subscribeCustomers' });
+        }
+        callback(readStoredCustomers());
       }
     );
   }
@@ -1162,6 +1767,10 @@ export class FirestoreService {
     customerId: string,
     callback: (entries: PointLedgerEntry[]) => void
   ): Unsubscribe {
+    if (isQuotaExceeded()) {
+      return () => {};
+    }
+
     const colRef = collection(db, 'pointLedger');
     const q = query(colRef, where('customerId', '==', customerId), limit(100));
 
@@ -1175,7 +1784,13 @@ export class FirestoreService {
         callback(entries);
       },
       (error) => {
-        errorService.capture(error, { action: 'subscribeCustomerPointLedger', customerId });
+        const classification = errorService.classify(error);
+        if (classification === 'QUOTA_ERROR') {
+          markQuotaExceeded();
+          console.warn('[HUMA Firestore] Read quota reached in subscribeCustomerPointLedger.');
+        } else {
+          errorService.capture(error, { action: 'subscribeCustomerPointLedger', customerId });
+        }
       }
     );
   }
@@ -2048,6 +2663,126 @@ export class FirestoreService {
 
       txn.set(ledgerRef, sanitizeForFirestore(ledgerEntry));
     });
+  }
+
+  /**
+   * Bulk create products efficiently with anti-duplicate validation
+   */
+  public static async bulkCreateProducts(
+    productList: Array<Omit<Product, 'id'>>
+  ): Promise<{ insertedCount: number; skippedDuplicatesCount: number; duplicateNames: string[] }> {
+    if (!productList || productList.length === 0) {
+      return { insertedCount: 0, skippedDuplicatesCount: 0, duplicateNames: [] };
+    }
+
+    // Get current products to check against existing catalog
+    const existingProducts = await this.getProducts(true);
+    const existingNames = new Set<string>();
+    const existingSkus = new Set<string>();
+
+    for (const p of existingProducts) {
+      const norm = p.normalizedName || normalizeProductName(p.name);
+      if (norm) existingNames.add(norm);
+      if (p.sku) existingSkus.add(normalizeSku(p.sku));
+    }
+
+    const seenInBatchNames = new Set<string>();
+    const seenInBatchSkus = new Set<string>();
+
+    const validToInsert: Product[] = [];
+    const duplicateNames: string[] = [];
+
+    const now = new Date().toISOString();
+
+    for (let index = 0; index < productList.length; index++) {
+      const prod = productList[index];
+      const rawName = prod.name || '';
+      const normName = normalizeProductName(rawName);
+      const normSku = normalizeSku(prod.sku);
+
+      if (!normName) {
+        continue; // Skip invalid row
+      }
+
+      // Check if duplicate with existing database OR within this batch
+      if (existingNames.has(normName) || seenInBatchNames.has(normName)) {
+        duplicateNames.push(rawName.trim());
+        continue;
+      }
+
+      if (normSku && (existingSkus.has(normSku) || seenInBatchSkus.has(normSku))) {
+        duplicateNames.push(`${rawName.trim()} (SKU: ${normSku})`);
+        continue;
+      }
+
+      seenInBatchNames.add(normName);
+      if (normSku) seenInBatchSkus.add(normSku);
+
+      const colRef = collection(db, 'products');
+      const docRef = doc(colRef);
+
+      const productData: Product = {
+        ...prod,
+        id: docRef.id,
+        name: rawName.trim(),
+        normalizedName: normName,
+        sku: normSku || undefined,
+        createdAt: prod.createdAt || now,
+        updatedAt: now,
+        sortOrder: prod.sortOrder ?? (100 + index),
+        isDuplicate: false,
+      };
+
+      validToInsert.push(productData);
+    }
+
+    let totalInserted = 0;
+    // Batch limit: 200 operations per batch (saving product + registry entry)
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < validToInsert.length; i += BATCH_SIZE) {
+      const chunk = validToInsert.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+
+      chunk.forEach((p) => {
+        const prodDocRef = doc(db, 'products', p.id);
+        batch.set(prodDocRef, sanitizeForFirestore(p));
+
+        // Also register in product_names collection
+        if (p.normalizedName) {
+          const nameDocRef = doc(db, 'product_names', getSafeRegistryDocId('name', p.normalizedName));
+          batch.set(nameDocRef, {
+            productId: p.id,
+            name: p.name,
+            normalizedName: p.normalizedName,
+            updatedAt: now,
+          });
+        }
+
+        // Also register in product_skus collection if SKU exists
+        if (p.sku) {
+          const skuDocRef = doc(db, 'product_skus', getSafeRegistryDocId('sku', p.sku));
+          batch.set(skuDocRef, {
+            productId: p.id,
+            sku: p.sku,
+            updatedAt: now,
+          });
+        }
+      });
+
+      await batch.commit();
+      totalInserted += chunk.length;
+    }
+
+    // Invalidate products cache
+    cache.products = null;
+    cache.lastFetched = 0;
+    persistCatalog(cache);
+
+    return {
+      insertedCount: totalInserted,
+      skippedDuplicatesCount: duplicateNames.length,
+      duplicateNames,
+    };
   }
 }
 

@@ -60,6 +60,12 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
   // Toggle or select modifier item
   const handleToggleModifier = (group: ModifierGroup, item: any) => {
     setValidationError(null);
+    const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
+    if (!isAvail) {
+      setValidationError(`Opsi "${item.name}" saat ini sedang habis.`);
+      return;
+    }
+
     const existingIndex = selectedModifiers.findIndex(
       (m) => m.groupId === group.id && m.item.id === item.id
     );
@@ -94,6 +100,17 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
   };
 
   const handleConfirm = () => {
+    // Check if any selected modifier is sold out
+    const soldOutItem = selectedModifiers.find(
+      (m) => m.item.isAvailable === false || m.item.status === 'SOLD_OUT'
+    );
+    if (soldOutItem) {
+      setValidationError(
+        `Opsi "${soldOutItem.item.name}" saat ini sedang habis. Harap batalkan pilihan tersebut.`
+      );
+      return;
+    }
+
     // Validate required groups
     for (const group of relevantGroups) {
       const selectedInGroup = selectedModifiers.filter((m) => m.groupId === group.id);
@@ -120,8 +137,11 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
         {/* Product Header */}
         <div className="flex gap-3 pb-3 border-b border-gray-100">
           <img
-            src={product.imageUrl}
-            alt={product.name}
+            src={product.imageUrl || '/trimmed_store.png'}
+            alt={product.name || 'Produk HUMA'}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/trimmed_store.png';
+            }}
             className="w-20 h-20 rounded-2xl object-cover shadow-sm shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -198,33 +218,46 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
                   {group.items
                     .filter((item) => item.isActive)
                     .map((item) => {
+                      const isAvail = item.isAvailable !== false && item.status !== 'SOLD_OUT';
                       const isSelected = selectedInThisGroup.some((m) => m.item.id === item.id);
                       return (
                         <button
                           key={item.id}
                           type="button"
+                          disabled={!isAvail}
                           onClick={() => handleToggleModifier(group, item)}
                           className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs transition-all ${
-                            isSelected
+                            !isAvail
+                              ? 'bg-gray-100/70 border border-gray-200 text-gray-400 opacity-60 cursor-not-allowed'
+                              : isSelected
                               ? 'bg-white border-2 border-[#2E1A47] shadow-xs'
                               : 'bg-white/60 border border-gray-200/80 hover:bg-white'
                           }`}
                         >
-                          <div className="flex items-center gap-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             <div
                               className={`w-4 h-4 rounded-${
                                 group.maxSelection === 1 ? 'full' : 'md'
-                              } flex items-center justify-center border ${
-                                isSelected
+                              } flex items-center justify-center border shrink-0 ${
+                                !isAvail
+                                  ? 'border-gray-300 bg-gray-200 text-gray-400'
+                                  : isSelected
                                   ? 'bg-[#2E1A47] border-[#2E1A47] text-white'
                                   : 'border-gray-300 bg-white'
                               }`}
                             >
                               {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                             </div>
-                            <span className="font-semibold text-gray-800">{item.name}</span>
+                            <span className={`font-semibold truncate ${!isAvail ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                              {item.name}
+                            </span>
+                            {!isAvail && (
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 uppercase shrink-0">
+                                Habis
+                              </span>
+                            )}
                           </div>
-                          <span className="font-bold text-[#FF4500]">
+                          <span className={`font-bold shrink-0 ${!isAvail ? 'text-gray-400' : 'text-[#FF4500]'}`}>
                             {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}
                           </span>
                         </button>

@@ -129,42 +129,48 @@ export const AdminBannerManager: React.FC<AdminBannerManagerProps> = ({ banners,
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {banners.map((b) => (
-          <div key={b.id} className="clay-card overflow-hidden p-0">
-            <div className="relative h-40 w-full bg-gray-100">
-              <img src={b.imageUrl} alt={b.title} className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end text-white">
-                <h4 className="font-heading font-extrabold text-base">{b.title}</h4>
-                <p className="text-xs text-gray-200 mt-0.5">{b.subtitle}</p>
+        {(banners || [])
+          .filter((b): b is Banner => Boolean(b && typeof b === 'object' && b.id))
+          .map((b) => (
+            <div key={b.id} className="clay-card overflow-hidden p-0">
+              <div className="relative h-40 w-full bg-gray-100">
+                <img
+                  src={b.imageUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80'}
+                  alt={b.title || 'Banner'}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end text-white">
+                  <h4 className="font-heading font-extrabold text-base">{b.title || 'Banner'}</h4>
+                  {b.subtitle && <p className="text-xs text-gray-200 mt-0.5">{b.subtitle}</p>}
+                </div>
+              </div>
+
+              <div className="p-3 flex items-center justify-between bg-white text-xs">
+                <span
+                  className={`font-bold px-2 py-0.5 rounded-full ${
+                    b.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                  }`}
+                >
+                  {b.isActive ? 'Aktif' : 'Nonaktif'}
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleOpenEdit(b)}
+                    className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(b)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-
-            <div className="p-3 flex items-center justify-between bg-white text-xs">
-              <span
-                className={`font-bold px-2 py-0.5 rounded-full ${
-                  b.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                }`}
-              >
-                {b.isActive ? 'Aktif' : 'Nonaktif'}
-              </span>
-
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => handleOpenEdit(b)}
-                  className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDelete(b)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-600"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
+          ))}
       </div>
 
       <Modal

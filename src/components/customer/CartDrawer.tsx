@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -70,16 +70,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     group: ModifierGroup;
     totalQty: number;
   } | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // Detect which categories in cart require Batch Modifiers
   const batchModifierCategories = useMemo(() => {
     if (!categories || categories.length === 0 || !items || items.length === 0) return [];
     return categories
-      .filter((cat) => cat.batchModifierEnabled && cat.batchModifierGroupId)
+      .filter((cat) => (cat.batchModifierEnabled && cat.batchModifierGroupId) || cat.name.toLowerCase().includes('goreng'))
       .map((cat) => {
-        const matchingItems = items.filter((it) => it.categoryId === cat.id);
+        const matchingItems = items.filter((it) => {
+          if (it.categoryId) return it.categoryId === cat.id;
+          const product = allProducts?.find((p) => p.id === it.productId);
+          return product?.categoryId === cat.id;
+        });
         const totalQty = matchingItems.reduce((sum, it) => sum + it.quantity, 0);
-        const group = modifierGroups?.find((g) => g.id === cat.batchModifierGroupId);
+        const group = modifierGroups?.find(
+          (g) => g.id === cat.batchModifierGroupId || (cat.name.toLowerCase().includes('goreng') && g.name.toLowerCase().includes('bumbu'))
+        );
         return {
           category: cat,
           group,
@@ -90,51 +97,85 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         (entry): entry is { category: Category; group: ModifierGroup; totalQty: number } =>
           entry.totalQty > 0 && !!entry.group
       );
-  }, [categories, items, modifierGroups]);
+  }, [categories, items, modifierGroups, allProducts]);
 
   // Helper to resolve batch category configuration and completion status
-  const getBatchCategoryConfig = (entry: { category: Category; group: ModifierGroup; totalQty: number }) => {
-    const isReq = entry.category.batchModifierRequired !== false;
+  const getBatchCategoryConfig = useCallback((entry: { category: Category; group: ModifierGroup; totalQty: number }) => {
+    const isGorengan = entry.category.name.toLowerCase().includes('goreng');
+    const isReq = isGorengan || entry.category.batchModifierRequired !== false;
     const minSelections = entry.category.batchModifierMinSelection !== undefined
-      ? Math.max(0, Number(entry.category.batchModifierMinSelection))
-      : (entry.group.minSelection !== undefined ? Math.max(0, Number(entry.group.minSelection)) : (isReq ? 1 : 0));
+      ? Math.max(isGorengan ? 1 : 0, Number(entry.category.batchModifierMinSelection))
+      : (entry.group.minSelection !== undefined ? Math.max(1, Number(entry.group.minSelection)) : (isReq ? 1 : 0));
+    const effectiveMin = isReq ? Math.max(1, minSelections) : minSelections;
+
     const maxSelections = entry.category.batchModifierMaxSelection !== undefined && Number(entry.category.batchModifierMaxSelection) > 0
       ? Number(entry.category.batchModifierMaxSelection)
       : (entry.group.maxSelection !== undefined && Number(entry.group.maxSelection) > 0 ? Number(entry.group.maxSelection) : 2);
-    
+    const effectiveMax = Math.max(effectiveMin, maxSelections);
+
     const sel = batchSelections[entry.category.id];
     const selectedCount = sel
       ? (sel.selectedModifiers?.length ?? sel.options?.filter((o) => (o.quantity ?? 1) > 0).length ?? 0)
       : 0;
 
     const isComplete = isReq
-      ? selectedCount >= (minSelections || 1) && selectedCount <= maxSelections
-      : selectedCount <= maxSelections;
+      ? selectedCount >= effectiveMin && selectedCount <= effectiveMax
+      : selectedCount <= effectiveMax;
 
     return {
       isReq,
-      minSelections: isReq ? Math.max(1, minSelections) : minSelections,
-      maxSelections: Math.max(isReq ? Math.max(1, minSelections) : minSelections, maxSelections),
+      minSelections: effectiveMin,
+      maxSelections: effectiveMax,
       sel,
       selectedCount,
       isComplete,
     };
-  };
+  }, [batchSelections]);
 
-  // Check if any required batch modifier category is incomplete
-  const hasIncompleteBatchModifiers = useMemo(() => {
-    return batchModifierCategories.some((entry) => {
+  // Explicit Bumbu Status (Section E: NOT_REQUIRED | REQUIRED_NOT_SELECTED | SELECTED)
+  const bumbuStatus = useMemo((): 'NOT_REQUIRED' | 'REQUIRED_NOT_SELECTED' | 'SELECTED' => {
+    if (batchModifierCategories.length === 0) return 'NOT_REQUIRED';
+    const hasIncomplete = batchModifierCategories.some((entry) => {
       const { isComplete } = getBatchCategoryConfig(entry);
       return !isComplete;
     });
-  }, [batchModifierCategories, batchSelections]);
+    return hasIncomplete ? 'REQUIRED_NOT_SELECTED' : 'SELECTED';
+  }, [batchModifierCategories, getBatchCategoryConfig]);
 
-  // Clear validation error when all batch modifiers are complete
+  const hasIncompleteBatchModifiers = bumbuStatus === 'REQUIRED_NOT_SELECTED';
+
+  // Clear validation error when all batch modifiers are complete or not required
   useEffect(() => {
-    if (!hasIncompleteBatchModifiers) {
+    if (bumbuStatus !== 'REQUIRED_NOT_SELECTED') {
       setBatchValidationError(null);
     }
-  }, [hasIncompleteBatchModifiers]);
+  }, [bumbuStatus]);
+
+  // Guarded checkout proceed handler
+  const handleProceedCheckout = () => {
+    if (items.length === 0 || isNavigating) return;
+
+    // Strict validation: if bumbu is required but incomplete, BLOCK checkout
+    if (bumbuStatus === 'REQUIRED_NOT_SELECTED') {
+      setBatchValidationError('Bumbu belum dipilih. Silakan pilih bumbu terlebih dahulu sebelum melanjutkan.');
+      const firstIncomplete = batchModifierCategories.find((entry) => {
+        const { isComplete } = getBatchCategoryConfig(entry);
+        return !isComplete;
+      });
+      if (firstIncomplete) {
+        setActiveBatchCategory(firstIncomplete);
+      }
+      return;
+    }
+
+    setIsNavigating(true);
+    setBatchValidationError(null);
+    try {
+      onProceedToCheckout();
+    } finally {
+      setTimeout(() => setIsNavigating(false), 500);
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
@@ -183,7 +224,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             onClick={onClose}
           />
 
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-8 sm:pl-10 pointer-events-none">
+          <div className="fixed inset-y-0 right-0 w-full max-w-md flex pointer-events-none z-50 justify-end">
             {/* Drawer with spring slide-in and drag-to-dismiss gesture */}
             <motion.div
               key="cart-drawer-panel"
@@ -204,15 +245,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   onClose();
                 }
               }}
-              className="relative w-screen max-w-md bg-white shadow-2xl flex flex-col justify-between pointer-events-auto touch-pan-y"
+              className="relative w-full h-full bg-white shadow-2xl flex flex-col justify-between pointer-events-auto touch-pan-y overflow-hidden"
             >
-              {/* Subtle visual drag hint on the left edge */}
-              <div
-                className="absolute -left-3.5 top-1/2 -translate-y-1/2 w-7 h-16 bg-white/90 shadow-md rounded-l-2xl flex items-center justify-center cursor-ew-resize sm:hidden text-gray-400"
-                title="Geser ke kanan untuk menutup"
-              >
-                <ChevronRight className="w-4 h-4 text-gray-500" />
-              </div>
               {/* Header */}
               <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between bg-[#FBFBFC]">
                 <div className="flex items-center gap-2">
@@ -343,131 +377,133 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     ))}
                   </AnimatePresence>
                 )}
-
-                {/* Batch Modifiers (Pilihan Bumbu) Section in Cart */}
-                {items.length > 0 && batchModifierCategories.length > 0 && (
-                  <div className="mt-4 pt-3 border-t border-gray-200/70 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-[#FF4500]" />
-                        <h5 className="font-heading font-extrabold text-xs text-[#2E1A47] uppercase tracking-wide">
-                          Pilihan Bumbu & Rasa
-                        </h5>
-                      </div>
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 px-2 py-0.5 rounded-full">
-                        Pilih di Keranjang
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {batchModifierCategories.map((entry) => {
-                        const { isReq, minSelections, maxSelections, sel, selectedCount, isComplete } =
-                          getBatchCategoryConfig(entry);
-                        const groupName = entry.group.name || 'Bumbu';
-                        const selectedNames =
-                          sel?.selectedModifiers?.map((m) => m.modifierName) ||
-                          sel?.options?.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName) ||
-                          [];
-
-                        if (isComplete && selectedCount > 0) {
-                          return (
-                            <div
-                              key={entry.category.id}
-                              className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-300 shadow-2xs flex items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-xs font-extrabold text-emerald-900 truncate">
-                                    ✓ {groupName} sudah dipilih ({selectedCount}/{maxSelections})
-                                  </p>
-                                  <p className="text-[11px] text-gray-700 font-medium truncate">
-                                    {groupName}: {selectedNames.join(', ')}
-                                  </p>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setActiveBatchCategory(entry)}
-                                className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
-                              >
-                                Ubah
-                              </button>
-                            </div>
-                          );
-                        }
-
-                        // Optional with 0 chosen
-                        if (!isReq && selectedCount === 0) {
-                          return (
-                            <div
-                              key={entry.category.id}
-                              className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Sparkles className="w-4 h-4 text-gray-400 shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-xs font-bold text-gray-700 truncate">
-                                    {groupName} (Opsional • 0/{maxSelections})
-                                  </p>
-                                  <p className="text-[11px] text-gray-500 font-medium truncate">
-                                    Belum memilih bumbu
-                                  </p>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setActiveBatchCategory(entry)}
-                                className="px-2.5 py-1 text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
-                              >
-                                Pilih Bumbu
-                              </button>
-                            </div>
-                          );
-                        }
-
-                        // Incomplete required
-                        return (
-                          <div
-                            key={entry.category.id}
-                            className={`p-3 bg-amber-50/80 rounded-xl border ${
-                              batchValidationError ? 'border-rose-400 ring-2 ring-rose-200' : 'border-amber-300'
-                            } shadow-2xs flex items-center justify-between gap-2`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
-                              <div className="min-w-0">
-                                <p className="text-xs font-extrabold text-amber-900">
-                                  ⚠️ {groupName} {selectedCount > 0 ? 'belum lengkap' : 'belum dipilih'}
-                                </p>
-                                <p className="text-[11px] text-gray-700 font-medium truncate">
-                                  Pilih minimal {minSelections} dan maksimal {maxSelections} {groupName.toLowerCase()} (saat ini {selectedCount}/{maxSelections})
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveBatchCategory(entry)}
-                              className="clay-button-primary px-3 py-1.5 text-xs font-extrabold whitespace-nowrap shadow-xs shrink-0"
-                            >
-                              {selectedCount > 0 ? 'Lengkapi Bumbu' : 'Pilih Bumbu'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Footer Section */}
               {items.length > 0 && (
                 <div className="p-4 sm:p-5 border-t border-gray-100 bg-[#FBFBFC] space-y-3">
-                  {/* Batch validation error banner */}
-                  {batchValidationError && (
-                    <div className="flex items-center gap-2 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-bold animate-pulse">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{batchValidationError}</span>
+                  {/* Batch Modifiers (Pilihan Bumbu) Section - Relocated right above Kupon / Kode Promo */}
+                  {batchModifierCategories.length > 0 && (
+                    <div id="section-batch-modifiers" className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-[#FF4500]" />
+                          <h5 className="font-heading font-extrabold text-xs text-[#2E1A47] uppercase tracking-wide">
+                            Pilihan Bumbu & Rasa
+                          </h5>
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            bumbuStatus === 'SELECTED'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : batchValidationError
+                              ? 'bg-rose-100 text-rose-800 animate-pulse'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {bumbuStatus === 'SELECTED' ? 'Sudah Lengkap' : 'Wajib Dipilih'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {batchModifierCategories.map((entry) => {
+                          const { isReq, minSelections, maxSelections, sel, selectedCount, isComplete } =
+                            getBatchCategoryConfig(entry);
+                          const groupName = entry.group.name || 'Bumbu';
+                          const selectedNames =
+                            sel?.selectedModifiers?.map((m) => m.modifierName) ||
+                            sel?.options?.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName) ||
+                            [];
+
+                          if (isComplete && selectedCount > 0) {
+                            return (
+                              <div
+                                key={entry.category.id}
+                                className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-300 shadow-2xs flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-extrabold text-emerald-900 truncate">
+                                      ✓ {groupName} sudah dipilih ({selectedCount}/{maxSelections})
+                                    </p>
+                                    <p className="text-[11px] text-gray-700 font-medium truncate">
+                                      {groupName}: {selectedNames.join(', ')}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveBatchCategory(entry)}
+                                  className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
+                                >
+                                  Ubah
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          // Optional with 0 chosen
+                          if (!isReq && selectedCount === 0) {
+                            return (
+                              <div
+                                key={entry.category.id}
+                                className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Sparkles className="w-4 h-4 text-gray-400 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-gray-700 truncate">
+                                      {groupName} (Opsional • 0/{maxSelections})
+                                    </p>
+                                    <p className="text-[11px] text-gray-500 font-medium truncate">
+                                      Belum memilih bumbu
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveBatchCategory(entry)}
+                                  className="px-2.5 py-1 text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
+                                >
+                                  Pilih Bumbu
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          // Incomplete required bumbu (Wording matches Section R: e.g. "Bumbu (Wajib • 0/2)")
+                          return (
+                            <div
+                              key={entry.category.id}
+                              className={`p-3 bg-amber-50/80 rounded-xl border ${
+                                batchValidationError ? 'border-rose-400 ring-2 ring-rose-200' : 'border-amber-300'
+                              } shadow-2xs flex items-center justify-between gap-2`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
+                                <div className="min-w-0">
+                                  <p className="text-xs font-extrabold text-amber-900">
+                                    {groupName} ({isReq ? 'Wajib' : 'Opsional'} • {selectedCount}/{maxSelections})
+                                  </p>
+                                  <p className="text-[11px] text-amber-800 font-medium truncate">
+                                    {selectedCount === 0
+                                      ? `Belum memilih ${groupName.toLowerCase()} (wajib pilih minimal ${minSelections})`
+                                      : `Pilih minimal ${minSelections} dan maksimal ${maxSelections} ${groupName.toLowerCase()}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveBatchCategory(entry)}
+                                className="clay-button-primary px-3 py-1.5 text-xs font-extrabold whitespace-nowrap shadow-xs shrink-0"
+                              >
+                                {selectedCount > 0 ? 'Lengkapi Bumbu' : 'Pilih Bumbu'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -516,49 +552,31 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     )}
                   </div>
 
-                  {/* Active Mix & Match Bundles Banner */}
-                  {mixMatchBundles.length > 0 && (
-                    <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-purple-900">
-                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                        <span>Promo Mix & Match Aktif!</span>
-                      </div>
-                      {mixMatchBundles.map((b, idx) => (
-                        <div key={idx} className="flex justify-between text-[11px] text-purple-800">
-                          <span>
-                            {b.promoName} ({b.bundleCount} paket)
-                          </span>
-                          <span className="font-bold">-Rp {b.discount.toLocaleString('id-ID')}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
                   {/* Price Breakdown */}
                   <div className="space-y-1.5 text-xs text-gray-600 pt-1">
-                    <div className="flex justify-between">
-                      <span>Subtotal</span>
-                      <span className="font-semibold text-gray-900">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Subtotal</span>
+                      <span className="font-semibold text-gray-900 shrink-0 whitespace-nowrap">
                         Rp {subtotal.toLocaleString('id-ID')}
                       </span>
                     </div>
                     {discount > 0 && (
-                      <div className="flex justify-between text-emerald-600 font-semibold">
-                        <span>Diskon Promo {mixMatchDiscount > 0 ? '(Mix & Match)' : ''}</span>
-                        <span>-Rp {discount.toLocaleString('id-ID')}</span>
+                      <div className="flex justify-between items-center text-emerald-600 font-semibold">
+                        <span className="truncate pr-2">Diskon Promo {mixMatchDiscount > 0 ? '(Mix & Match)' : ''}</span>
+                        <span className="shrink-0 whitespace-nowrap">-Rp {discount.toLocaleString('id-ID')}</span>
                       </div>
                     )}
                     {serviceType === 'DELIVERY' && (
-                      <div className="flex justify-between">
-                        <span>Ongkos Kirim (estimasi)</span>
-                        <span className="font-semibold text-gray-900">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Ongkos Kirim (estimasi)</span>
+                        <span className="font-semibold text-gray-900 shrink-0 whitespace-nowrap">
                           {deliveryFee === 0 ? 'Gratis' : `Rp ${deliveryFee.toLocaleString('id-ID')}`}
                         </span>
                       </div>
                     )}
-                    <div className="flex justify-between text-sm font-heading font-extrabold text-[#2E1A47] pt-2 border-t border-gray-100">
+                    <div className="flex justify-between items-center text-sm font-heading font-extrabold text-[#2E1A47] pt-2 border-t border-gray-100">
                       <span>Total Bayar</span>
-                      <span className="text-base text-[#FF4500]">
+                      <span className="text-base text-[#FF4500] shrink-0 whitespace-nowrap">
                         Rp {total.toLocaleString('id-ID')}
                       </span>
                     </div>
@@ -569,34 +587,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     {/* Primary: Checkout & Order */}
                     <button
                       id="btn-proceed-checkout"
-                      onClick={() => {
-                        if (hasIncompleteBatchModifiers) {
-                          setBatchValidationError('Lengkapi pilihan bumbu terlebih dahulu.');
-                          const firstIncomplete = batchModifierCategories.find((entry) => {
-                            const { isComplete } = getBatchCategoryConfig(entry);
-                            return !isComplete;
-                          });
-                          if (firstIncomplete) {
-                            setActiveBatchCategory(firstIncomplete);
-                          }
-                          return;
-                        }
-                        setBatchValidationError(null);
-                        onProceedToCheckout();
-                      }}
+                      onClick={handleProceedCheckout}
+                      disabled={isNavigating}
                       className={`w-full py-3 px-4 flex items-center justify-between text-xs sm:text-sm font-bold shadow-lg rounded-2xl transition-all ${
-                        hasIncompleteBatchModifiers
+                        bumbuStatus === 'REQUIRED_NOT_SELECTED'
                           ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer ring-2 ring-amber-300'
                           : 'clay-button-primary'
                       }`}
                     >
-                      <span className="flex items-center gap-1.5">
-                        <MessageCircle className={`w-4 h-4 ${hasIncompleteBatchModifiers ? 'text-white' : 'text-emerald-300'}`} />
-                        <span>
-                          {hasIncompleteBatchModifiers ? 'Lengkapi Pilihan Bumbu Dahulu' : 'Lanjut ke Pesan Sekarang'}
+                      <span className="flex items-center gap-1.5 min-w-0 pr-2">
+                        <MessageCircle className={`w-4 h-4 shrink-0 ${bumbuStatus === 'REQUIRED_NOT_SELECTED' ? 'text-white' : 'text-emerald-300'}`} />
+                        <span className="truncate">
+                          {bumbuStatus === 'REQUIRED_NOT_SELECTED' ? 'Lengkapi Pilihan Bumbu Dahulu' : 'Lanjut ke Pesan Sekarang'}
                         </span>
                       </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
                         <span>Rp {total.toLocaleString('id-ID')}</span>
                         <ArrowRight className="w-4 h-4" />
                       </div>

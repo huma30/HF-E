@@ -121,8 +121,12 @@ class CentralErrorService {
     if (this.recentErrors.length > 50) {
       this.recentErrors.pop();
     }
-    // Safe console logging for admins/developers without leaking in production UI
-    console.error(`[HUMA-ERROR][${appError.classification}] ${appError.originalMessage}`, appError);
+    // For expected external quota exhaustion or offline network degradation, use warning so it doesn't trigger fatal uncaught errors in browser runners
+    if (appError.classification === 'QUOTA_ERROR' || appError.classification === 'NETWORK_ERROR') {
+      console.warn(`[HUMA-NOTICE][${appError.classification}] ${appError.userMessage} (${appError.originalMessage})`, appError);
+    } else {
+      console.error(`[HUMA-ERROR][${appError.classification}] ${appError.originalMessage}`, appError);
+    }
 
     // Notify UI listeners
     this.errorListeners.forEach((listener) => {

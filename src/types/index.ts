@@ -76,6 +76,19 @@ export interface StoreSettings {
   pointsRedeemRate?: number; // e.g. 100 = 1 poin -> Rp 100 diskon (100 poin = Rp 10.000)
   pointsRounding?: 'FLOOR' | 'ROUND';
   maxPointsPerOrder?: number;
+  // Footer Customization Settings
+  footerDescription?: string;
+  footerDeliveryNote?: string;
+  footerBottomNote?: string;
+  footerCopyright?: string;
+  isFooterEnabled?: boolean;
+  footerShowPlatforms?: boolean;
+  // Receipt Thermal Footer Customization Settings
+  receiptFooterMessage?: string; // e.g. "Terima kasih atas pesanan Anda!"
+  receiptFooterNote?: string; // e.g. "Simpan struk ini sebagai bukti transaksi"
+  receiptFooterShowTagline?: boolean; // toggle whether to print store tagline in receipt footer
+  receiptFooterCustomText?: string; // optional extra lines/promotions at footer
+  receiptFooterShowGoogleReview?: boolean; // toggle google review prompt at footer
 }
 
 export interface PlatformLink {
@@ -127,6 +140,8 @@ export interface ModifierItem {
   price: number;
   isActive: boolean;
   sortOrder: number;
+  isAvailable?: boolean;
+  status?: 'AVAILABLE' | 'SOLD_OUT';
 }
 
 export interface ModifierGroup {
@@ -168,6 +183,8 @@ export interface BatchModifierSelection {
 export interface Product {
   id: string;
   name: string;
+  normalizedName?: string;
+  sku?: string;
   categoryId: string;
   description: string;
   price: number; // Base price
@@ -182,6 +199,8 @@ export interface Product {
   sortOrder?: number;
   createdAt?: string;
   updatedAt?: string;
+  isDuplicate?: boolean;
+  canonicalProductId?: string;
 }
 
 export interface SelectedModifier {
@@ -203,7 +222,6 @@ export interface CartItem {
   lineTotal: number;
   notes?: string;
   categoryId?: string;
-  batchModifiers?: BatchModifierSelection[];
 }
 
 export interface DeliveryArea {
@@ -236,15 +254,15 @@ export interface Promo {
   usageLimit?: number;
   usedCount: number;
   isActive: boolean;
-  // Mix & Match Settings
+  // Mix & Match Quantity-Based Pricing settings
   isMixMatch?: boolean;
   mixMatchProductIds?: string[];
   mixMatchCategoryIds?: string[];
   mixMatchMinQty?: number;
-  mixMatchQuantity?: number;
+  mixMatchQuantity?: number; // Compatibility alias with minQty
   mixMatchDiscountType?: 'FIXED' | 'PERCENTAGE' | 'FIXED_PRICE';
   mixMatchDiscountValue?: number;
-  mixMatchPromoPrice?: number;
+  mixMatchPromoPrice?: number; // Official Promo Price per Pcs
   mixMatchPriceType?: 'PER_ITEM' | 'PACKAGE';
   mixMatchAllowSameProduct?: boolean;
 }

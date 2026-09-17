@@ -6,7 +6,7 @@
 
 This contains everything you need to run your app locally.
 
-Firebase Hosting target: `huma-70272`
+View your app in AI Studio: https://ai.studio/apps/1f37f1ee-d1e5-4329-8dcd-620ef8629c6d
 
 ## Run Locally
 

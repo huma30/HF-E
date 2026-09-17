@@ -342,11 +342,41 @@ export class PrinterService {
 
     addText(separator);
 
-    // 6. Footer
+    // 6. Footer (Customizable)
     addBytes(ALIGN_CENTER);
-    addText('Terima Kasih Atas Kunjungan Anda!\n');
-    addText('Selamat Menikmati Hidangan Kami\n');
-    if (settings?.googleReviewUrl && settings.isGoogleReviewEnabled) {
+
+    const footerMsg = settings?.receiptFooterMessage !== undefined
+      ? settings.receiptFooterMessage
+      : 'Terima kasih atas pesanan Anda!';
+    if (footerMsg && footerMsg.trim()) {
+      addBytes(BOLD_ON);
+      addText(`${footerMsg.trim()}\n`);
+      addBytes(BOLD_OFF);
+    }
+
+    const showTagline = settings?.receiptFooterShowTagline !== false;
+    const tagline = settings?.tagline || 'Jajan dekat rasa bersahabat';
+    if (showTagline && tagline && tagline.trim()) {
+      addText(`"${tagline.trim()}"\n`);
+    }
+
+    const footerNote = settings?.receiptFooterNote !== undefined
+      ? settings.receiptFooterNote
+      : 'Simpan struk ini sebagai bukti transaksi';
+    if (footerNote && footerNote.trim()) {
+      addText(`${footerNote.trim()}\n`);
+    }
+
+    if (settings?.receiptFooterCustomText && settings.receiptFooterCustomText.trim()) {
+      const customLines = settings.receiptFooterCustomText.split('\n');
+      customLines.forEach((cLine) => {
+        if (cLine.trim()) {
+          addText(`${cLine.trim()}\n`);
+        }
+      });
+    }
+
+    if (settings?.receiptFooterShowGoogleReview && settings?.googleReviewUrl) {
       addText('Beri ulasan kami di Google Maps!\n');
     }
 

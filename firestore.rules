@@ -1,93 +1,157 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    function isAuthenticated() {
+
+    function signedIn() {
       return request.auth != null;
     }
-    
-    function isAdminEmail() {
-      return isAuthenticated() && (
-        request.auth.token.email == 'huma301123@gmail.com'
-      );
-    }
-    
-    function getAdminDoc() {
+
+    function adminDoc() {
       return get(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
-    
-    function hasRole(allowedRoles) {
-      return isAdminEmail() || (
-        isAuthenticated() && 
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        getAdminDoc().data.isActive == true &&
-        getAdminDoc().data.role in allowedRoles
-      );
+
+    function activeStaff() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && adminDoc().data.isActive == true;
     }
 
-    // Store configuration and catalog
-    match /test/{docId} {
-      allow read, write: if true;
+    function superAdmin() {
+      return activeStaff()
+        && adminDoc().data.role == 'SUPER_ADMIN';
     }
+
+    function managerOrAbove() {
+      return activeStaff()
+        && adminDoc().data.role in ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
+    }
+
+    function staff() {
+      return activeStaff()
+        && adminDoc().data.role in ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'];
+    }
+
+    // ------------------------------------------------------------
+    // PUBLIC STOREFRONT READ-ONLY DATA
+    // ------------------------------------------------------------
 
     match /settings/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
-    
+
     match /categories/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
-    
+
     match /products/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
-    
+
     match /modifierGroups/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
 
     match /promos/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
 
     match /deliveryAreas/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
 
     match /banners/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
 
     match /platformLinks/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if managerOrAbove();
     }
 
-    // Orders: Anyone can create an order. Staff and system can read, update, delete.
+    match /rewards/{docId} {
+      allow read: if true;
+      allow write: if managerOrAbove();
+    }
+
+    // ------------------------------------------------------------
+    // PRODUCT DUPLICATE / REGISTRY DATA
+    // ------------------------------------------------------------
+
+    match /product_names/{docId} {
+      allow read, write: if managerOrAbove();
+    }
+
+    match /product_skus/{docId} {
+      allow read, write: if managerOrAbove();
+    }
+
+    // ------------------------------------------------------------
+    // ORDERS
+    //
+    // Public customer:
+    //   CREATE only
+    //
+    // Staff:
+    //   READ / UPDATE / DELETE
+    // ------------------------------------------------------------
+
     match /orders/{orderId} {
-      allow read, write: if true;
+      allow create: if
+        request.resource.data.source == 'WEB'
+        && request.resource.data.status == 'PENDING';
+
+      allow read, update, delete: if staff();
+    }
+
+    // ------------------------------------------------------------
+    // ADMIN / INTERNAL DATA
+    // ------------------------------------------------------------
+
+    match /admins/{userId} {
+      // A signed-in user may read only their own admin profile.
+      allow get: if signedIn() && request.auth.uid == userId;
+
+      // Super admin controls staff records.
+      allow list, create, update, delete: if superAdmin();
     }
 
     match /analyticsDaily/{docId} {
-      allow read, write: if true;
+      allow read, write: if staff();
     }
 
     match /analyticsMonthly/{docId} {
-      allow read, write: if true;
+      allow read, write: if staff();
     }
 
     match /auditLogs/{docId} {
-      allow read, write: if true;
-    }
-
-    match /admins/{userId} {
-      allow read, write: if true;
+      allow read: if managerOrAbove();
+      allow create: if staff();
+      allow update, delete: if superAdmin();
     }
 
     match /printerSettings/{docId} {
-      allow read, write: if true;
+      allow read, write: if managerOrAbove();
     }
 
-    // Customer records and Loyalty Points: Accessible by store app and staff
+    // ------------------------------------------------------------
+    // CUSTOMER / LOYALTY
+    //
+    // TEMPORARY COMPATIBILITY:
+    // Current browser implementation performs customer + loyalty
+    // operations without Firebase customer authentication.
+    //
+    // These remain temporarily writable so existing loyalty features
+    // do not break. This is NOT considered production-secure.
+    // ------------------------------------------------------------
+
     match /customers/{customerId} {
       allow read, write: if true;
     }
@@ -96,7 +160,7 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    match /rewards/{rewardId} {
+    match /pointRedemptions/{redemptionId} {
       allow read, write: if true;
     }
 
@@ -108,8 +172,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    match /pointRedemptions/{redemptionId} {
-      allow read, write: if true;
+    // ------------------------------------------------------------
+    // TEST / CONNECTION
+    // Read is retained because firebase.ts performs a connectivity
+    // check against test/connection.
+    // ------------------------------------------------------------
+
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if superAdmin();
     }
   }
 }

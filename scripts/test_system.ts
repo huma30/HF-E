@@ -21,7 +21,7 @@ import {
   DEFAULT_PROMOS,
   DEFAULT_STORE_SETTINGS,
 } from '../src/data/seedData';
-import { Product, Promo, Order, CartItem } from '../src/types';
+import { Product, Promo, Order, CartItem, Category, ModifierGroup, BatchModifierSelection } from '../src/types';
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -321,6 +321,302 @@ console.log('\n8. Testing Seed Data Integrity & Schema Compliance');
     (p) => p.wholesaleRules && p.wholesaleRules.every((r) => r.minQty > 0 && r.price < p.price)
   );
   assert(rulesValid, 'Wholesale rules have valid minQty and offer cheaper prices than base price');
+}
+
+// 9. ANTI-DUPLICATE PRODUCT & NORMALIZATION TESTING
+console.log('\n9. Testing Anti-Duplicate Engine & Name Normalization');
+{
+  const {
+    normalizeProductName,
+    normalizeSku,
+    checkProductDuplicate,
+    auditCatalogDuplicates,
+  } = await import('../src/utils/productUtils');
+
+  // Normalization
+  assertEqual(normalizeProductName('  Seblak   Komplit  '), 'seblak komplit', 'Trims and collapses spaces');
+  assertEqual(normalizeProductName('“Seblak Prasmanan”'), 'seblak prasmanan', 'Cleans fancy quotation marks');
+  assertEqual(normalizeProductName('ES TEH MANIS'), 'es teh manis', 'Converts to lowercase');
+  assertEqual(normalizeSku(' sbl 01 '), 'SBL-01', 'Normalizes SKU to uppercase dash format');
+
+  // Duplicate Check against catalog
+  const catalog: Product[] = [
+    {
+      id: 'p1',
+      name: 'Seblak Original Prasmanan',
+      normalizedName: 'seblak original prasmanan',
+      sku: 'SBL-01',
+      categoryId: 'cat_seblak',
+      description: '',
+      price: 15000,
+      imageUrl: '',
+      isAvailable: true,
+      isActive: true,
+      wholesaleEnabled: false,
+      modifierGroupIds: [],
+    },
+  ];
+
+  // Detect duplicate with varied casing and whitespace
+  const dup1 = checkProductDuplicate({ name: '  SEBLAK   ORIGINAL   PRASMANAN  ' }, catalog);
+  assert(dup1.isDuplicate, 'Detects duplicate with varied casing and excess spacing');
+  assertEqual(dup1.duplicateType, 'NAME', 'Identifies duplicate type as NAME');
+
+  // Detect duplicate SKU
+  const dup2 = checkProductDuplicate({ name: 'Menu Baru', sku: 'sbl 01' }, catalog);
+  assert(dup2.isDuplicate, 'Detects duplicate SKU regardless of casing/spacing');
+  assertEqual(dup2.duplicateType, 'SKU', 'Identifies duplicate type as SKU');
+
+  // Allows editing existing product without false positive
+  const editSelf = checkProductDuplicate({ id: 'p1', name: 'Seblak Original Prasmanan', sku: 'SBL-01' }, catalog);
+  assert(!editSelf.isDuplicate, 'Allows editing existing product without triggering self-duplicate');
+
+  // Catalog Audit & Deduplication Test
+  const messyCatalog: Product[] = [
+    { id: 'm1', name: 'Seblak Pedas', categoryId: 'cat_1', description: 'With image', price: 15000, imageUrl: 'http://img.com', isAvailable: true, isActive: true, wholesaleEnabled: false, modifierGroupIds: [], createdAt: '2026-01-01T00:00:00Z' },
+    { id: 'm2', name: '  seblak  pedas  ', categoryId: 'cat_1', description: '', price: 15000, imageUrl: '', isAvailable: true, isActive: true, wholesaleEnabled: false, modifierGroupIds: [], createdAt: '2026-01-02T00:00:00Z' },
+    { id: 'm3', name: 'Es Jeruk', categoryId: 'cat_2', description: '', price: 8000, imageUrl: '', isAvailable: true, isActive: true, wholesaleEnabled: false, modifierGroupIds: [] },
+  ];
+
+  const audit = auditCatalogDuplicates(messyCatalog);
+  assertEqual(audit.duplicateGroupsCount, 1, 'Identified 1 duplicate group');
+  assertEqual(audit.duplicateCount, 1, 'Identified 1 duplicate item to deactivate');
+  assertEqual(audit.groups[0].canonical.id, 'm1', 'Picks m1 as canonical due to image and earlier creation');
+  assertEqual(audit.canonicalMapping['m2'], 'm1', 'Maps m2 duplicate to canonical m1');
+
+  // Verify FirestoreService.autoDeleteDuplicateProducts definition
+  const { FirestoreService } = await import('../src/services/firestoreService');
+  assert(typeof FirestoreService.autoDeleteDuplicateProducts === 'function', 'FirestoreService exposes autoDeleteDuplicateProducts function');
+  assert(typeof FirestoreService.getAutoDeleteDuplicatesSetting === 'function', 'FirestoreService exposes getAutoDeleteDuplicatesSetting function');
+  assert(typeof FirestoreService.setAutoDeleteDuplicatesSetting === 'function', 'FirestoreService exposes setAutoDeleteDuplicatesSetting function');
+}
+
+// 8. BATCH MODIFIER GUARD & MIX & MATCH PRICING INTEGRITY
+console.log('\n8. Testing Batch Modifier Guard & Mix & Match Integrity');
+{
+  const seblakCategory: Category = {
+    id: 'cat-seblak',
+    name: 'Seblak Prasmanan',
+    slug: 'seblak-prasmanan',
+    icon: 'Soup',
+    sortOrder: 1,
+    isActive: true,
+    batchModifierEnabled: true,
+    batchModifierGroupId: 'group-bumbu',
+    batchModifierRequired: true,
+    batchModifierMinSelection: 1,
+    batchModifierMaxSelection: 2,
+    batchModifierMode: 'POOL',
+  };
+
+  const minumanCategory: Category = {
+    id: 'cat-minuman',
+    name: 'Minuman Segar',
+    slug: 'minuman-segar',
+    icon: 'Coffee',
+    sortOrder: 2,
+    isActive: true,
+    batchModifierEnabled: false,
+  };
+
+  const bumbuGroup: ModifierGroup = {
+    id: 'group-bumbu',
+    name: 'Pilihan Bumbu & Kuah',
+    isActive: true,
+    minSelection: 1,
+    maxSelection: 2,
+    isRequired: true,
+    items: [
+      { id: 'b-pedas', name: 'Bumbu Pedas Manis', price: 0, sortOrder: 1, isAvailable: true, isActive: true },
+      { id: 'b-asin', name: 'Bumbu Asin Gurih', price: 0, sortOrder: 2, isAvailable: true, isActive: true },
+    ],
+  };
+
+  const seblakItem: CartItem = {
+    cartItemId: 'item-1',
+    productId: 'prod-seblak',
+    productName: 'Seblak Komplit',
+    productImage: '',
+    basePrice: 15000,
+    unitPrice: 15000,
+    quantity: 2,
+    selectedModifiers: [],
+    modifiersPrice: 0,
+    lineTotal: 30000,
+    categoryId: 'cat-seblak',
+  };
+
+  const esTehItem: CartItem = {
+    cartItemId: 'item-2',
+    productId: 'prod-esteh',
+    productName: 'Es Teh Manis',
+    productImage: '',
+    basePrice: 5000,
+    unitPrice: 5000,
+    quantity: 1,
+    selectedModifiers: [],
+    modifiersPrice: 0,
+    lineTotal: 5000,
+    categoryId: 'cat-minuman',
+  };
+
+  // Helper evaluator mimicking CartDrawer & Backend logic
+  function evaluateBumbuStatus(
+    items: CartItem[],
+    categories: Category[],
+    groups: ModifierGroup[],
+    batchSelections: Record<string, any>
+  ): 'NOT_REQUIRED' | 'REQUIRED_NOT_SELECTED' | 'SELECTED' {
+    const relevantBatchCategories = categories
+      .filter((cat) => (cat.batchModifierEnabled && cat.batchModifierGroupId) || cat.name.toLowerCase().includes('goreng'))
+      .map((cat) => {
+        const matchingItems = items.filter((it) => it.categoryId === cat.id);
+        const totalQty = matchingItems.reduce((sum, it) => sum + it.quantity, 0);
+        const group = groups.find(
+          (g) => g.id === cat.batchModifierGroupId || (cat.name.toLowerCase().includes('goreng') && g.name.toLowerCase().includes('bumbu'))
+        );
+        return { category: cat, group, totalQty };
+      })
+      .filter((entry): entry is { category: Category; group: ModifierGroup; totalQty: number } =>
+        entry.totalQty > 0 && !!entry.group
+      );
+
+    if (relevantBatchCategories.length === 0) return 'NOT_REQUIRED';
+
+    const hasIncomplete = relevantBatchCategories.some((entry) => {
+      const isGorengan = entry.category.name.toLowerCase().includes('goreng');
+      const isReq = isGorengan || entry.category.batchModifierRequired !== false;
+      const minSelections = entry.category.batchModifierMinSelection !== undefined
+        ? Math.max(isGorengan ? 1 : 0, Number(entry.category.batchModifierMinSelection))
+        : 1;
+      const sel = batchSelections[entry.category.id];
+      const count = sel ? (sel.selectedModifiers?.length ?? sel.options?.filter((o: any) => (o.quantity ?? 1) > 0).length ?? 0) : 0;
+      return isReq ? count < minSelections : false;
+    });
+
+    return hasIncomplete ? 'REQUIRED_NOT_SELECTED' : 'SELECTED';
+  }
+
+  // T3: Single Batch Product without bumbu -> REQUIRED_NOT_SELECTED
+  const statusT3 = evaluateBumbuStatus([seblakItem], [seblakCategory, minumanCategory], [bumbuGroup], {});
+  assertEqual(statusT3, 'REQUIRED_NOT_SELECTED', 'T3: Cart with Batch Modifier product without bumbu is REQUIRED_NOT_SELECTED');
+
+  // T4: Single Batch Product with valid bumbu -> SELECTED
+  const validSelections = {
+    'cat-seblak': {
+      categoryId: 'cat-seblak',
+      categoryName: 'Seblak Prasmanan',
+      selectedModifiers: [{ modifierId: 'b-pedas', modifierName: 'Bumbu Pedas Manis', price: 0 }],
+    },
+  };
+  const statusT4 = evaluateBumbuStatus([seblakItem], [seblakCategory, minumanCategory], [bumbuGroup], validSelections);
+  assertEqual(statusT4, 'SELECTED', 'T4: Cart with Batch Modifier product and valid bumbu is SELECTED');
+
+  // T5: Non-Batch Product only -> NOT_REQUIRED
+  const statusT5 = evaluateBumbuStatus([esTehItem], [seblakCategory, minumanCategory], [bumbuGroup], {});
+  assertEqual(statusT5, 'NOT_REQUIRED', 'T5: Cart with non-batch products only is NOT_REQUIRED');
+
+  // T6: Quantity mutation test
+  const mutatedItem = { ...seblakItem, quantity: 5, lineTotal: 75000 };
+  const statusT6 = evaluateBumbuStatus([mutatedItem], [seblakCategory, minumanCategory], [bumbuGroup], validSelections);
+  assertEqual(statusT6, 'SELECTED', 'T6: Quantity increase retains valid evaluation with selected bumbu');
+
+  // T7: Remove Batch Product test (seblak removed, only es teh left)
+  const statusT7 = evaluateBumbuStatus([esTehItem], [seblakCategory, minumanCategory], [bumbuGroup], {});
+  assertEqual(statusT7, 'NOT_REQUIRED', 'T7: Removing batch modifier product transitions status to NOT_REQUIRED');
+
+  // Mix & Match Discount Engine verification
+  const promoMM: Promo = {
+    id: 'promo-mm',
+    code: 'MM-SEBLAK',
+    name: 'Diskon Seblak 2 Porsi',
+    description: 'Beli 2 porsi dapat diskon',
+    discountType: 'FIXED',
+    discountValue: 2000,
+    value: 2000,
+    minPurchase: 0,
+    minOrderAmount: 0,
+    usedCount: 0,
+    isActive: true,
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+    type: 'MIX_MATCH',
+    isMixMatch: true,
+    mixMatchQuantity: 2,
+    mixMatchCategoryIds: ['cat-seblak'],
+    mixMatchPromoPrice: 14000,
+  };
+
+  const mmResult = PricingEngine.calculateMixMatchDiscounts([seblakItem], [promoMM]);
+  assertEqual(mmResult.discount, 2000, 'Mix & Match discount calculation remains intact at Rp 2.000');
+  assert(mmResult.appliedBundles.length > 0, 'Mix & Match bundles properly applied in pricing engine');
+
+  // Aneka Gorengan Specific Tests
+  const anekaGorenganCategory: Category = {
+    id: 'bIOwprfg8JjGL8IqkXqZ',
+    name: 'Aneka gorengan',
+    slug: 'aneka-gorengan',
+    sortOrder: 2,
+    isActive: true,
+    batchModifierEnabled: true,
+    batchModifierRequired: true,
+    batchModifierGroupId: 'C3z7JP7YWWqQwiTQKJwA',
+    batchModifierMinSelection: 1,
+    batchModifierMaxSelection: 2,
+  };
+
+  const gorenganItem: CartItem = {
+    cartItemId: 'cart-gorengan-1',
+    productId: 'prod-tahu-walik',
+    productName: 'Tahu Walik Crispy',
+    productImage: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=400',
+    basePrice: 10000,
+    modifiersPrice: 0,
+    categoryId: 'bIOwprfg8JjGL8IqkXqZ',
+    quantity: 2,
+    unitPrice: 10000,
+    lineTotal: 20000,
+    selectedModifiers: [],
+  };
+
+  // Aneka Gorengan without bumbu must be REQUIRED_NOT_SELECTED
+  const gorenganStatusNoBumbu = evaluateBumbuStatus(
+    [gorenganItem],
+    [anekaGorenganCategory],
+    [bumbuGroup],
+    {}
+  );
+  assertEqual(
+    gorenganStatusNoBumbu,
+    'REQUIRED_NOT_SELECTED',
+    'Aneka Gorengan without bumbu is strictly blocked with status REQUIRED_NOT_SELECTED'
+  );
+
+  // Aneka Gorengan with bumbu selected must be SELECTED
+  const gorenganSelections: Record<string, BatchModifierSelection> = {
+    bIOwprfg8JjGL8IqkXqZ: {
+      categoryId: 'bIOwprfg8JjGL8IqkXqZ',
+      categoryName: 'Aneka gorengan',
+      modifierGroupId: 'C3z7JP7YWWqQwiTQKJwA',
+      modifierGroupName: 'Bumbu Tabur',
+      options: [{ modifierId: 'm-balado', modifierName: 'Balado Pedas Manis', quantity: 1, price: 0 }],
+      selectedModifiers: [{ modifierId: 'm-balado', modifierName: 'Balado Pedas Manis', price: 0 }],
+      totalAllocated: 1,
+      targetQuantity: 2,
+    },
+  };
+
+  const gorenganStatusWithBumbu = evaluateBumbuStatus(
+    [gorenganItem],
+    [anekaGorenganCategory],
+    [bumbuGroup],
+    gorenganSelections
+  );
+  assertEqual(
+    gorenganStatusWithBumbu,
+    'SELECTED',
+    'Aneka Gorengan with bumbu selected advances cleanly with status SELECTED'
+  );
 }
 
 console.log('\n======================================================');

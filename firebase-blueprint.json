@@ -20,7 +20,13 @@
         },
         "manualStatusOverride": { "type": "string", "enum": ["AUTO", "FORCE_OPEN", "FORCE_CLOSED"] },
         "isOrderingEnabled": { "type": "boolean" },
-        "minOrderAmount": { "type": "number" }
+        "minOrderAmount": { "type": "number" },
+        "footerDescription": { "type": "string" },
+        "footerDeliveryNote": { "type": "string" },
+        "footerBottomNote": { "type": "string" },
+        "footerCopyright": { "type": "string" },
+        "isFooterEnabled": { "type": "boolean" },
+        "footerShowPlatforms": { "type": "boolean" }
       },
       "required": ["storeName", "whatsapp"]
     },

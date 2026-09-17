@@ -23,6 +23,8 @@ import {
   Gift,
   CreditCard,
   Banknote,
+  PanelBottom,
+  Receipt,
 } from 'lucide-react';
 
 interface AdminSettingsProps {
@@ -88,6 +90,40 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ settings, onRefres
   );
   const [maxPointsPerOrder, setMaxPointsPerOrder] = useState<number>(settings?.maxPointsPerOrder || 100);
 
+  // Footer Customization Settings
+  const [footerDescription, setFooterDescription] = useState(
+    settings?.footerDescription ||
+      'Pilihan kuliner lokal terpercaya untuk warga Perum Gina dan sekitarnya. Seblak otentik rempah kencur, mie jebew pedas gurih, baso aci, dan aneka minuman segar.'
+  );
+  const [footerDeliveryNote, setFooterDeliveryNote] = useState(
+    settings?.footerDeliveryNote || 'Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya.'
+  );
+  const [footerBottomNote, setFooterBottomNote] = useState(
+    settings?.footerBottomNote || 'Dibuat dengan penuh rasa bersahabat untuk seluruh warga.'
+  );
+  const [footerCopyright, setFooterCopyright] = useState(
+    settings?.footerCopyright || '© 2026 HUMA — All Rights Reserved.'
+  );
+  const [isFooterEnabled, setIsFooterEnabled] = useState(settings?.isFooterEnabled !== false);
+  const [footerShowPlatforms, setFooterShowPlatforms] = useState(settings?.footerShowPlatforms !== false);
+
+  // Struk Thermal Footer Customization Settings
+  const [receiptFooterMessage, setReceiptFooterMessage] = useState(
+    settings?.receiptFooterMessage || 'Terima kasih atas pesanan Anda!'
+  );
+  const [receiptFooterNote, setReceiptFooterNote] = useState(
+    settings?.receiptFooterNote || 'Simpan struk ini sebagai bukti transaksi sah'
+  );
+  const [receiptFooterShowTagline, setReceiptFooterShowTagline] = useState(
+    settings?.receiptFooterShowTagline !== false
+  );
+  const [receiptFooterCustomText, setReceiptFooterCustomText] = useState(
+    settings?.receiptFooterCustomText || ''
+  );
+  const [receiptFooterShowGoogleReview, setReceiptFooterShowGoogleReview] = useState(
+    settings?.receiptFooterShowGoogleReview === true
+  );
+
   // Sync state with incoming props whenever settings changes or loads from Firestore
   useEffect(() => {
     if (settings) {
@@ -126,6 +162,24 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ settings, onRefres
       setTransferInstructions(
         settings.transferInstructions || 'Sertakan nomor pesanan pada berita transfer dan simpan bukti transfer'
       );
+      setFooterDescription(
+        settings.footerDescription ||
+          'Pilihan kuliner lokal terpercaya untuk warga Perum Gina dan sekitarnya. Seblak otentik rempah kencur, mie jebew pedas gurih, baso aci, dan aneka minuman segar.'
+      );
+      setFooterDeliveryNote(
+        settings.footerDeliveryNote || 'Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya.'
+      );
+      setFooterBottomNote(
+        settings.footerBottomNote || 'Dibuat dengan penuh rasa bersahabat untuk seluruh warga.'
+      );
+      setFooterCopyright(settings.footerCopyright || '© 2026 HUMA — All Rights Reserved.');
+      setIsFooterEnabled(settings.isFooterEnabled !== false);
+      setFooterShowPlatforms(settings.footerShowPlatforms !== false);
+      setReceiptFooterMessage(settings.receiptFooterMessage !== undefined ? settings.receiptFooterMessage : 'Terima kasih atas pesanan Anda!');
+      setReceiptFooterNote(settings.receiptFooterNote !== undefined ? settings.receiptFooterNote : 'Simpan struk ini sebagai bukti transaksi sah');
+      setReceiptFooterShowTagline(settings.receiptFooterShowTagline !== false);
+      setReceiptFooterCustomText(settings.receiptFooterCustomText || '');
+      setReceiptFooterShowGoogleReview(settings.receiptFooterShowGoogleReview === true);
     }
   }, [settings]);
 
@@ -198,6 +252,17 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ settings, onRefres
         accountNumber: accountNumber.trim(),
         accountHolder: accountHolder.trim(),
         transferInstructions: transferInstructions.trim(),
+        footerDescription: footerDescription.trim(),
+        footerDeliveryNote: footerDeliveryNote.trim(),
+        footerBottomNote: footerBottomNote.trim(),
+        footerCopyright: footerCopyright.trim(),
+        isFooterEnabled,
+        footerShowPlatforms,
+        receiptFooterMessage: receiptFooterMessage.trim(),
+        receiptFooterNote: receiptFooterNote.trim(),
+        receiptFooterShowTagline,
+        receiptFooterCustomText: receiptFooterCustomText.trim(),
+        receiptFooterShowGoogleReview,
       });
 
       await FirestoreService.updateStoreSettings(settingsPayload);
@@ -601,6 +666,99 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ settings, onRefres
           </div>
         </div>
 
+        {/* Kustomisasi Footer Struk Thermal */}
+        <div className="clay-card p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+            <div className="flex items-center gap-2 text-[#2E1A47] font-bold text-sm">
+              <Receipt className="w-4 h-4 text-[#FF4500]" />
+              <span>Kustomisasi Teks Footer Struk Cetak</span>
+            </div>
+            <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full">
+              Cetak Bluetooth & Gambar Struk
+            </span>
+          </div>
+
+          <p className="text-xs text-gray-500 leading-relaxed">
+            Atur ucapan terima kasih, pesan khusus, dan catatan yang tercetak pada bagian bawah struk fisik pelanggan.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Ucapan Terima Kasih (Baris Utama):
+              </label>
+              <input
+                type="text"
+                value={receiptFooterMessage}
+                onChange={(e) => setReceiptFooterMessage(e.target.value)}
+                placeholder="Terima kasih atas pesanan Anda!"
+                className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 focus:bg-white focus:outline-hidden focus:border-[#2E1A47]"
+              />
+              <span className="text-[11px] text-gray-400 mt-1 block">
+                Dicetak tebal di tengah sebagai ucapan terima kasih utama.
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="toggle-receipt-tagline"
+                checked={receiptFooterShowTagline}
+                onChange={(e) => setReceiptFooterShowTagline(e.target.checked)}
+                className="w-4 h-4 text-[#FF4500] rounded-sm"
+              />
+              <label htmlFor="toggle-receipt-tagline" className="text-xs text-gray-700 font-medium cursor-pointer">
+                Sertakan slogan toko "{tagline || 'Jajan dekat rasa bersahabat'}" pada footer struk
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Catatan Penutup / Keterangan Struk:
+              </label>
+              <input
+                type="text"
+                value={receiptFooterNote}
+                onChange={(e) => setReceiptFooterNote(e.target.value)}
+                placeholder="Simpan struk ini sebagai bukti transaksi sah"
+                className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 focus:bg-white focus:outline-hidden focus:border-[#2E1A47]"
+              />
+              <span className="text-[11px] text-gray-400 mt-1 block">
+                Contoh: "Simpan struk ini sebagai bukti transaksi sah" atau "Barang yang sudah dibeli tidak dapat ditukar".
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Teks Kustom Tambahan (Multi-baris / Opsional):
+              </label>
+              <textarea
+                rows={2}
+                value={receiptFooterCustomText}
+                onChange={(e) => setReceiptFooterCustomText(e.target.value)}
+                placeholder="Contoh: Follow IG @humafood&#10;WiFi: HUMA-FREE / Pass: jajanlagi"
+                className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 focus:bg-white focus:outline-hidden focus:border-[#2E1A47] font-mono"
+              />
+              <span className="text-[11px] text-gray-400 mt-0.5 block">
+                Teks tambahan seperti sosial media, info promo hari esok, atau password Wi-Fi toko (pisahkan baris dengan Enter).
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="toggle-receipt-review"
+                checked={receiptFooterShowGoogleReview}
+                onChange={(e) => setReceiptFooterShowGoogleReview(e.target.checked)}
+                className="w-4 h-4 text-[#FF4500] rounded-sm"
+              />
+              <label htmlFor="toggle-receipt-review" className="text-xs text-gray-700 font-medium cursor-pointer">
+                Tampilkan ajakan ulasan Google Maps di struk ("Beri ulasan kami di Google Maps!")
+              </label>
+            </div>
+          </div>
+        </div>
+
         {/* Google Maps Review & GoFood Link */}
         <div className="clay-card p-5 space-y-4">
           <div className="flex items-center gap-2 text-[#2E1A47] font-bold text-sm border-b border-gray-100 pb-2">
@@ -835,6 +993,84 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ settings, onRefres
                 />
                 <div className="w-11 h-6 bg-gray-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FF4500]"></div>
               </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 7: Kustomisasi Footer Toko */}
+        <div className="clay-card p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+            <div className="flex items-center gap-2 text-[#2E1A47] font-bold text-sm">
+              <PanelBottom className="w-4 h-4 text-[#FF4500]" />
+              <span>Kustomisasi Footer Toko (Catatan Bawah & Hak Cipta)</span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                id="toggle-footer-enabled"
+                checked={isFooterEnabled}
+                onChange={(e) => setIsFooterEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+              <span className="ml-2 text-xs font-bold text-gray-700">
+                {isFooterEnabled ? 'Footer Aktif' : 'Disembunyikan'}
+              </span>
+            </label>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Deskripsi Toko / Tentang Kami di Footer:
+              </label>
+              <textarea
+                rows={2}
+                value={footerDescription}
+                onChange={(e) => setFooterDescription(e.target.value)}
+                placeholder="Pilihan kuliner lokal terpercaya..."
+                className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:outline-hidden focus:border-[#2E1A47] text-gray-800"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Catatan Pengiriman di Bawah Jam Operasional:
+              </label>
+              <input
+                type="text"
+                value={footerDeliveryNote}
+                onChange={(e) => setFooterDeliveryNote(e.target.value)}
+                placeholder="Menerima pesanan antar ke kompleks Perum Gina dan sekitarnya."
+                className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:outline-hidden focus:border-[#2E1A47] text-gray-800"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Teks Hak Cipta (Copyright):
+                </label>
+                <input
+                  type="text"
+                  value={footerCopyright}
+                  onChange={(e) => setFooterCopyright(e.target.value)}
+                  placeholder="© 2026 HUMA — All Rights Reserved."
+                  className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:outline-hidden focus:border-[#2E1A47] text-gray-800"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Catatan Kaki / Salam Hangat:
+                </label>
+                <input
+                  type="text"
+                  value={footerBottomNote}
+                  onChange={(e) => setFooterBottomNote(e.target.value)}
+                  placeholder="Dibuat dengan rasa bersahabat..."
+                  className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:outline-hidden focus:border-[#2E1A47] text-gray-800"
+                />
+              </div>
             </div>
           </div>
         </div>

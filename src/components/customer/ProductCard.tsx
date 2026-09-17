@@ -68,10 +68,13 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
       {/* Image Container */}
       <div className="relative w-full h-36 sm:h-44 rounded-xl sm:rounded-2xl overflow-hidden bg-gray-100 mb-3">
         <img
-          src={product.imageUrl}
-          alt={product.name}
+          src={product.imageUrl || '/trimmed_store.png'}
+          alt={product.name || 'Produk HUMA'}
           loading="lazy"
           decoding="async"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = '/trimmed_store.png';
+          }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
 

@@ -104,9 +104,40 @@ export class ReceiptService {
     }
 
     lines.push('----------------------------------------');
-    lines.push('     Terima kasih atas pesanan Anda!');
-    lines.push(`       ${tagline}`);
-    lines.push('   Simpan struk ini sebagai bukti transaksi');
+    
+    // Customizable Receipt Footer
+    const footerMsg = settings?.receiptFooterMessage !== undefined
+      ? settings.receiptFooterMessage
+      : 'Terima kasih atas pesanan Anda!';
+    if (footerMsg && footerMsg.trim()) {
+      lines.push(`     ${footerMsg.trim()}`);
+    }
+
+    const showTagline = settings?.receiptFooterShowTagline !== false;
+    if (showTagline && tagline && tagline.trim()) {
+      lines.push(`       "${tagline.trim()}"`);
+    }
+
+    const footerNote = settings?.receiptFooterNote !== undefined
+      ? settings.receiptFooterNote
+      : 'Simpan struk ini sebagai bukti transaksi';
+    if (footerNote && footerNote.trim()) {
+      lines.push(`   ${footerNote.trim()}`);
+    }
+
+    if (settings?.receiptFooterCustomText && settings.receiptFooterCustomText.trim()) {
+      const customLines = settings.receiptFooterCustomText.split('\n');
+      customLines.forEach((cLine) => {
+        if (cLine.trim()) {
+          lines.push(`   ${cLine.trim()}`);
+        }
+      });
+    }
+
+    if (settings?.receiptFooterShowGoogleReview && settings.googleReviewUrl) {
+      lines.push('   Beri ulasan bintang 5 kami di Google!');
+    }
+
     lines.push('----------------------------------------');
 
     if (settings?.autoCutEnabled) {
@@ -310,7 +341,8 @@ export class ReceiptService {
     const baseLineHeight = 22;
     const itemCount = order.items.length;
     const modCount = order.items.reduce((acc, i) => acc + (i.selectedModifiers?.length || 0), 0);
-    const estimatedLines = 26 + itemCount * 2 + modCount;
+    const customFooterLines = settings?.receiptFooterCustomText ? settings.receiptFooterCustomText.split('\n').filter(Boolean).length : 0;
+    const estimatedLines = 26 + itemCount * 2 + modCount + customFooterLines + (settings?.receiptFooterShowGoogleReview ? 1 : 0);
     const totalHeight = padding * 2 + logoHeight + estimatedLines * baseLineHeight + (settings?.autoCutEnabled ? 40 : 0);
 
     // Render at 2x pixel ratio for sharp display & mobile clarity
@@ -502,17 +534,51 @@ export class ReceiptService {
     drawLine(currentY, '-');
     currentY += 20;
 
-    // 6. Footer
+    // 6. Footer (Customizable)
     ctx.textAlign = 'center';
-    ctx.font = 'bold 12px "Courier New", Courier, monospace';
-    ctx.fillText('Terima kasih atas kunjungan Anda!', paperWidth / 2, currentY);
-    currentY += 18;
-    ctx.font = 'italic 11px "Courier New", Courier, monospace';
-    ctx.fillText(`"${settings?.tagline || 'Jajan dekat rasa bersahabat'}"`, paperWidth / 2, currentY);
-    currentY += 16;
-    ctx.font = '10px "Courier New", Courier, monospace';
-    ctx.fillText('Simpan struk ini sebagai bukti transaksi sah', paperWidth / 2, currentY);
-    currentY += 20;
+    
+    const footerMsg = settings?.receiptFooterMessage !== undefined
+      ? settings.receiptFooterMessage
+      : 'Terima kasih atas pesanan Anda!';
+    if (footerMsg && footerMsg.trim()) {
+      ctx.font = 'bold 12px "Courier New", Courier, monospace';
+      ctx.fillText(footerMsg.trim(), paperWidth / 2, currentY);
+      currentY += 18;
+    }
+
+    const showTagline = settings?.receiptFooterShowTagline !== false;
+    if (showTagline) {
+      const activeTagline = settings?.tagline || 'Jajan dekat rasa bersahabat';
+      ctx.font = 'italic 11px "Courier New", Courier, monospace';
+      ctx.fillText(`"${activeTagline}"`, paperWidth / 2, currentY);
+      currentY += 16;
+    }
+
+    const footerNote = settings?.receiptFooterNote !== undefined
+      ? settings.receiptFooterNote
+      : 'Simpan struk ini sebagai bukti transaksi sah';
+    if (footerNote && footerNote.trim()) {
+      ctx.font = '10px "Courier New", Courier, monospace';
+      ctx.fillText(footerNote.trim(), paperWidth / 2, currentY);
+      currentY += 18;
+    }
+
+    if (settings?.receiptFooterCustomText && settings.receiptFooterCustomText.trim()) {
+      ctx.font = '10px "Courier New", Courier, monospace';
+      const customLines = settings.receiptFooterCustomText.split('\n');
+      customLines.forEach((cLine) => {
+        if (cLine.trim()) {
+          ctx.fillText(cLine.trim(), paperWidth / 2, currentY);
+          currentY += 16;
+        }
+      });
+    }
+
+    if (settings?.receiptFooterShowGoogleReview && settings.googleReviewUrl) {
+      ctx.font = 'bold 10px "Courier New", Courier, monospace';
+      ctx.fillText('Beri ulasan kami di Google Maps!', paperWidth / 2, currentY);
+      currentY += 18;
+    }
 
     if (settings?.autoCutEnabled) {
       drawLine(currentY, '-');
@@ -734,9 +800,21 @@ export class ReceiptService {
 
           <div class="divider"></div>
           <div class="text-center" style="margin-top: 6px;">
-            <div class="bold">Terima kasih atas pesanan Anda!</div>
-            <div class="italic" style="font-size: 10px;">"${tagline}"</div>
-            <div style="font-size: 9px; color: #555; margin-top: 3px;">Simpan struk ini sebagai bukti transaksi</div>
+            ${(settings?.receiptFooterMessage !== undefined ? settings.receiptFooterMessage : 'Terima kasih atas pesanan Anda!') ? `
+              <div class="bold">${settings?.receiptFooterMessage !== undefined ? settings.receiptFooterMessage : 'Terima kasih atas pesanan Anda!'}</div>
+            ` : ''}
+            ${(settings?.receiptFooterShowTagline !== false && (settings?.tagline || tagline)) ? `
+              <div class="italic" style="font-size: 10px;">"${settings?.tagline || tagline || 'Jajan dekat rasa bersahabat'}"</div>
+            ` : ''}
+            ${(settings?.receiptFooterNote !== undefined ? settings.receiptFooterNote : 'Simpan struk ini sebagai bukti transaksi') ? `
+              <div style="font-size: 9px; color: #555; margin-top: 3px;">${settings?.receiptFooterNote !== undefined ? settings.receiptFooterNote : 'Simpan struk ini sebagai bukti transaksi'}</div>
+            ` : ''}
+            ${settings?.receiptFooterCustomText ? `
+              <div style="font-size: 9px; color: #444; margin-top: 3px; white-space: pre-line;">${settings.receiptFooterCustomText}</div>
+            ` : ''}
+            ${(settings?.receiptFooterShowGoogleReview && settings.googleReviewUrl) ? `
+              <div style="font-size: 9px; font-weight: bold; margin-top: 4px;">⭐ Beri ulasan kami di Google Maps!</div>
+            ` : ''}
           </div>
 
           ${settings?.autoCutEnabled ? `
