@@ -70,6 +70,14 @@ interface AdminOrderMonitorProps {
 export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, settings }) => {
   const [selectedStatusTab, setSelectedStatusTab] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
+  const [sortDirection, setSortDirection] = useState<'DESC' | 'ASC'>('DESC');
   const [activeReceiptOrder, setActiveReceiptOrder] = useState<Order | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
@@ -120,10 +128,34 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
     },
   ];
 
-  // Always show the newest order first. Use a robust timestamp parser because
-  // Firestore may return createdAt as Timestamp, Date, ISO string, or number.
+  const getLocalDateKey = (createdAt: Order['createdAt'] | FirestoreTimestampLike | string | number | null | undefined) => {
+    const timestamp = getOrderTimestamp(createdAt);
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const formatOrderDateTime = (createdAt: Order['createdAt'] | FirestoreTimestampLike | string | number | null | undefined) => {
+    const timestamp = getOrderTimestamp(createdAt);
+    if (!timestamp) return '-';
+    return new Intl.DateTimeFormat('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  };
+
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((o) => {
+      if (selectedDate && getLocalDateKey(o.createdAt) !== selectedDate) {
+        return false;
+      }
+
       if (selectedStatusTab !== 'ALL' && o.status !== selectedStatusTab) {
         if (selectedStatusTab === 'CANCELLED' && (o.status === 'CANCELLED' || o.status === 'REFUNDED')) {
           // match
@@ -131,6 +163,7 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
           return false;
         }
       }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchNum = String(o.orderNumber || '').toLowerCase().includes(q);
@@ -138,21 +171,23 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
         const matchPhone = String(o.customer?.whatsapp || '').includes(q);
         if (!matchNum && !matchCust && !matchPhone) return false;
       }
+
       return true;
     });
 
     return [...filtered].sort((a, b) => {
-      const bTime = getOrderTimestamp(b.createdAt);
       const aTime = getOrderTimestamp(a.createdAt);
+      const bTime = getOrderTimestamp(b.createdAt);
 
-      if (bTime !== aTime) {
-        return bTime - aTime;
+      if (aTime !== bTime) {
+        return sortDirection === 'DESC' ? bTime - aTime : aTime - bTime;
       }
 
-      // Stable fallback when timestamps are identical/missing.
-      return String(b.id || '').localeCompare(String(a.id || ''));
+      return sortDirection === 'DESC'
+        ? String(b.id || '').localeCompare(String(a.id || ''))
+        : String(a.id || '').localeCompare(String(b.id || ''));
     });
-  }, [orders, selectedStatusTab, searchQuery]);
+  }, [orders, selectedDate, selectedStatusTab, searchQuery, sortDirection]);
 
   const handleAdvanceStatus = async (order: Order) => {
     let nextStatus: OrderStatus = 'CONFIRMED';
@@ -196,21 +231,44 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
             <p className="text-xs text-gray-500">
               Kelola alur dapur dan status pesanan pelanggan secara real-time
             </p>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[10px] font-extrabold text-gray-600">
-              Terbaru → Terlama
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-extrabold text-emerald-700">
+              ● LIVE • Tanggal: {selectedDate}
             </span>
           </div>
         </div>
 
-        <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Cari #No. Order / Pelanggan..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-9 pr-3 py-2 rounded-xl bg-white border border-gray-200 focus:outline-hidden"
-          />
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <label className="flex items-center gap-2 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-600">
+            <span>Tanggal</span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="text-xs font-semibold text-gray-800 bg-transparent outline-none"
+              title="Tampilkan pesanan pada tanggal tertentu"
+            />
+          </label>
+
+          <select
+            value={sortDirection}
+            onChange={(e) => setSortDirection(e.target.value as 'DESC' | 'ASC')}
+            className="w-full sm:w-44 text-xs font-bold px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 outline-none"
+            title="Urutan pesanan"
+          >
+            <option value="DESC">Terbaru → Terlama</option>
+            <option value="ASC">Terlama → Terbaru</option>
+          </select>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Cari #No. Order / Pelanggan..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full text-xs pl-9 pr-3 py-2 rounded-xl bg-white border border-gray-200 focus:outline-hidden"
+            />
+          </div>
         </div>
       </div>
 
@@ -242,6 +300,27 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
       </div>
 
       {/* Orders List / Cards */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs text-gray-500">
+          Menampilkan <span className="font-extrabold text-gray-700">{filteredOrders.length}</span> pesanan
+          pada tanggal <span className="font-extrabold text-gray-700">{selectedDate}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+            setSelectedDate(`${y}-${m}-${d}`);
+            setSortDirection('DESC');
+          }}
+          className="px-3 py-1.5 rounded-full bg-white border border-gray-200 text-[10px] font-extrabold text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          Hari Ini • Terbaru
+        </button>
+      </div>
+
       <div className="space-y-3">
         {filteredOrders.length === 0 ? (
           <div className="clay-card p-12 text-center text-gray-400">
@@ -275,11 +354,8 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                         {order.orderNumber}
                       </span>
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(order.createdAt).toLocaleTimeString('id-ID', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                    <span className="inline-flex items-center rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                      {formatOrderDateTime(order.createdAt)}
                     </span>
                     <span
                       className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
