@@ -59,6 +59,8 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
   const [sku, setSku] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState<number>(15000);
+  const [stockEnabled, setStockEnabled] = useState(false);
+  const [stock, setStock] = useState<number>(0);
   const [categoryId, setCategoryId] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
@@ -104,6 +106,8 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setPrice(15000);
     setCategoryId(categories[0]?.id || '');
     setImageUrl('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80');
+    setStockEnabled(false);
+    setStock(0);
     setIsAvailable(true);
     setIsPopular(false);
     setWholesaleEnabled(false);
@@ -121,6 +125,12 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setPrice(p.price);
     setCategoryId(p.categoryId);
     setImageUrl(p.imageUrl);
+    setStockEnabled(p.stockEnabled === true);
+    setStock(
+      typeof p.stock === 'number' && Number.isFinite(p.stock)
+        ? Math.max(0, Math.floor(p.stock))
+        : 0
+    );
     setIsAvailable(p.isAvailable);
     setIsPopular(!!p.isPopular);
     setWholesaleEnabled(!!p.wholesaleEnabled);
@@ -280,6 +290,8 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
         description: description.trim(),
         price: Number(price),
         categoryId,
+        stockEnabled,
+        stock: Math.max(0, Math.floor(Number(stock) || 0)),
         imageUrl: finalImageUrl,
         isAvailable,
         isActive: true,
@@ -678,6 +690,22 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                 <h4 className="font-heading font-bold text-sm text-[#2E1A47] line-clamp-1">{p.name}</h4>
                 <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{p.description}</p>
 
+                {p.stockEnabled === true && (
+                  <div
+                    className={`mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-extrabold border ${
+                      (p.stock ?? 0) > 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    <span>
+                      {(p.stock ?? 0) > 0
+                        ? `Stok ${Math.max(0, Math.floor(p.stock ?? 0))} pcs`
+                        : 'Stok habis'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
                   <div>
                     <span className="font-heading font-extrabold text-[#2E1A47] text-sm">
@@ -843,6 +871,79 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
             folder="products"
             helperText="Foto otomatis dikonversi ke WebP (maks. 800x800, < 150 KB) untuk menghemat storage dan mempercepat tampilan pelanggan."
           />
+
+          {/* Master Stock / Inventory Section */}
+          <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200/80 space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h5 className="font-heading font-bold text-xs text-[#2E1A47]">
+                  Manajemen Stok Produk
+                </h5>
+                <p className="text-[11px] text-gray-500">
+                  Stok ini adalah stok master yang nantinya dipakai bersama katalog, POS,
+                  dan redeem poin.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setStockEnabled((prev) => !prev)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                  stockEnabled
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-gray-200 text-gray-600'
+                }`}
+              >
+                {stockEnabled ? 'Aktif' : 'Nonaktif'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-[1fr_auto] items-end gap-2 pt-2 border-t border-emerald-200/60">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Stok Master (pcs)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  value={stock}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setStock(
+                      Number.isFinite(next)
+                        ? Math.max(0, Math.floor(next))
+                        : 0
+                    );
+                  }}
+                  disabled={!stockEnabled}
+                  className="w-full text-xs px-3 py-2 rounded-xl bg-white border border-gray-200 focus:outline-hidden font-bold disabled:bg-gray-100 disabled:text-gray-400"
+                />
+              </div>
+
+              <div
+                className={`px-3 py-2 rounded-xl border text-xs font-extrabold whitespace-nowrap ${
+                  stockEnabled && stock <= 0
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : stockEnabled
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-500'
+                }`}
+              >
+                {stockEnabled
+                  ? stock > 0
+                    ? `${stock} pcs tersedia`
+                    : 'Stok habis'
+                  : 'Stok tidak dibatasi'}
+              </div>
+            </div>
+
+            <p className="text-[10px] text-gray-500">
+              Saat aktif, stok 0 akan diperlakukan sebagai habis oleh inventory
+              engine. Tombol “Tersedia/Habis” lama tetap dipertahankan.
+            </p>
+          </div>
 
           {/* Wholesale Tier Pricing Section */}
           <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80 space-y-2.5">

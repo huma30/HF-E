@@ -192,6 +192,15 @@ export interface Product {
   imageUrl: string;
   isActive: boolean;
   isAvailable: boolean;
+
+  /**
+   * Master inventory configuration.
+   * When stockEnabled is false/undefined, legacy unlimited/manual
+   * availability behavior remains unchanged.
+   */
+  stockEnabled?: boolean;
+  stock?: number;
+
   isPopular?: boolean;
   wholesaleEnabled: boolean;
   wholesaleRules?: WholesaleRule[];
@@ -399,7 +408,16 @@ export interface RewardItem {
   productName?: string;
   imageUrl?: string;
   description?: string;
-  stock?: number; // Optional stock limit (e.g., max 50 units)
+
+  /**
+   * Legacy quota field:
+   * - DISCOUNT rewards may continue using this field.
+   * - PRODUCT rewards must NOT use this as inventory.
+   *   PRODUCT reward availability is derived from the linked
+   *   master Product.stock through productId.
+   */
+  stock?: number;
+
   isActive: boolean;
   validUntil?: string;
   redeemCount: number;
