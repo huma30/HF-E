@@ -444,9 +444,40 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {rewards.map((reward) => {
-                    const customerBalance = connectedCustomer?.pointsBalance || 0;
-                    const canAfford = connectedCustomer && customerBalance >= reward.pointsCost;
-                    const deficit = reward.pointsCost - customerBalance;
+                    const customerBalance =
+                      connectedCustomer?.pointsBalance || 0;
+
+                    const linkedProduct =
+                      reward.type === 'PRODUCT' &&
+                      reward.productId
+                        ? products.find(
+                            (p) => p.id === reward.productId
+                          )
+                        : undefined;
+
+                    const productOutOfStock =
+                      reward.type === 'PRODUCT' &&
+                      !!reward.productId &&
+                      (
+                        linkedProduct?.stockEnabled !== true ||
+                        typeof linkedProduct.stock !== 'number' ||
+                        linkedProduct.stock <= 0
+                      );
+
+                    const discountQuotaOut =
+                      reward.type === 'DISCOUNT' &&
+                      reward.stock !== undefined &&
+                      reward.stock <= 0;
+
+                    const rewardUnavailable =
+                      productOutOfStock || discountQuotaOut;
+
+                    const canAfford =
+                      !!connectedCustomer &&
+                      customerBalance >= reward.pointsCost;
+
+                    const deficit =
+                      reward.pointsCost - customerBalance;
 
                     return (
                       <div
@@ -483,18 +514,30 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                                   ? `Voucher potongan harga Rp ${(reward.discountValue || 0).toLocaleString('id-ID')}`
                                   : 'Menu gratis spesial untuk pelanggan setia.')}
                             </p>
-                            {reward.stock !== undefined && (
+                            {reward.type === 'PRODUCT' &&
+                            reward.productId ? (
+                              linkedProduct?.stockEnabled === true ? (
+                                <span className="text-[10px] text-gray-400 block mt-1">
+                                  Stok menu: {linkedProduct.stock ?? 0} unit
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-600 block mt-1 font-semibold">
+                                  Stok master belum aktif
+                                </span>
+                              )
+                            ) : reward.type === 'DISCOUNT' &&
+                              reward.stock !== undefined ? (
                               <span className="text-[10px] text-gray-400 block mt-1">
                                 Sisa kuota: {reward.stock} unit
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </div>
 
                         {/* Action buttons footer */}
                         <div className="pt-3 mt-3 border-t border-gray-100 flex flex-col gap-1.5">
                           {connectedCustomer ? (
-                            canAfford ? (
+                            canAfford && !rewardUnavailable ? (
                               <button
                                 type="button"
                                 onClick={() => handleInitiateRedeem(reward)}
@@ -509,7 +552,13 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                                 disabled
                                 className="w-full py-2 px-3 rounded-xl bg-gray-100 text-gray-400 font-bold text-xs flex items-center justify-center gap-1 cursor-not-allowed border border-gray-200"
                               >
-                                <span>Poin Kurang ({deficit} lagi)</span>
+                                <span>
+                                  {rewardUnavailable
+                                    ? reward.type === 'PRODUCT'
+                                      ? 'Stok produk habis'
+                                      : 'Kuota reward habis'
+                                    : `Poin Kurang (${deficit} lagi)`}
+                                </span>
                               </button>
                             )
                           ) : (

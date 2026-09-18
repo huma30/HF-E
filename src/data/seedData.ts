@@ -192,6 +192,8 @@ export const DEFAULT_PRODUCTS: Product[] = [
     imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=600&q=80',
     isActive: true,
     isAvailable: true,
+    stockEnabled: true,
+    stock: 99,
     wholesaleEnabled: false,
     sortOrder: 6,
   },

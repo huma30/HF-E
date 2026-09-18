@@ -313,6 +313,12 @@ export interface Order {
   idempotencyKey?: string;
   cancellationReason?: string;
   batchModifiers?: BatchModifierSelection[];
+
+  // Master inventory transaction metadata.
+  inventoryOperationId?: string;
+  inventoryTracked?: Record<string, number>;
+  inventoryRestored?: boolean;
+  inventoryRestorationOperationId?: string;
 }
 
 export interface DailyAnalytics {
@@ -439,6 +445,7 @@ export interface PointRedemption {
   productName?: string;
   orderId?: string;
   pointsBalanceAfter?: number;
+  inventoryOperationId?: string;
   createdAt: string;
   createdBy: string;
   status: 'COMPLETED' | 'CANCELLED';

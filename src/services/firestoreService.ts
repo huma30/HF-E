@@ -6,6 +6,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   where,
   orderBy,
@@ -406,6 +407,14 @@ export class FirestoreService {
       imageUrl: product.imageUrl || '',
       isActive: product.isActive !== undefined ? product.isActive : true,
       isAvailable: product.isAvailable !== undefined ? product.isAvailable : true,
+
+      // Master inventory configuration.
+      stockEnabled: product.stockEnabled === true,
+      stock:
+        product.stock !== undefined
+          ? Math.max(0, Math.floor(Number(product.stock) || 0))
+          : undefined,
+
       isPopular: !!product.isPopular,
       wholesaleEnabled: !!product.wholesaleEnabled,
       wholesaleRules: product.wholesaleRules || [],
@@ -1147,36 +1156,175 @@ export class FirestoreService {
     const safeDeliveryFee = Math.max(0, orderInput.deliveryFee || 0);
     const computedTotal = Math.max(0, computedSubtotal - safeDiscount + safeDeliveryFee);
 
-    // 3. Generate unique order number
+    // 3. Generate order number and atomically consume master stock.
     const { orderNumber } = await this.generateOrderNumber();
     const orderDocRef = doc(collection(db, 'orders'));
     const orderId = orderDocRef.id;
     const createdAt = new Date().toISOString();
 
-    const newOrder: Order = {
+    const baseOrder: Order = {
       ...orderInput,
       id: orderId,
       orderNumber,
       createdAt,
-      subtotal: computedSubtotal > 0 ? computedSubtotal : orderInput.subtotal,
+      subtotal:
+        computedSubtotal > 0
+          ? computedSubtotal
+          : orderInput.subtotal,
       discount: safeDiscount,
       deliveryFee: safeDeliveryFee,
       total: computedTotal,
       status: orderInput.status || 'PENDING',
+      inventoryOperationId: orderId,
+      inventoryTracked: {},
     };
 
-    // 3. Save order document directly to Firestore (Allowed for both public customers and staff)
-    const cleanOrder = sanitizeForFirestore(newOrder);
+    let newOrder: Order;
+
     try {
-      await setDoc(orderDocRef, cleanOrder);
+      newOrder = await runTransaction(
+        db,
+        async (txn) => {
+          const quantities =
+            new Map<string, number>();
+
+          for (const item of baseOrder.items || []) {
+            const productId =
+              String(item.productId || '').trim();
+            const quantity = Number(item.quantity);
+
+            if (
+              !productId ||
+              !Number.isInteger(quantity) ||
+              quantity <= 0
+            ) {
+              throw new Error(
+                'Item pesanan tidak valid untuk transaksi stok.'
+              );
+            }
+
+            quantities.set(
+              productId,
+              (quantities.get(productId) || 0) +
+                quantity
+            );
+          }
+
+          const productEntries = [
+            ...quantities.entries(),
+          ].map(([productId, quantity]) => ({
+            productId,
+            quantity,
+            ref: doc(
+              db,
+              'products',
+              productId
+            ),
+          }));
+
+          const productSnapshots = [];
+
+          // Firestore requires transaction reads before writes.
+          for (const entry of productEntries) {
+            const snap = await txn.get(
+              entry.ref
+            );
+
+            productSnapshots.push({
+              ...entry,
+              snap,
+            });
+          }
+
+          const inventoryTracked:
+            Record<string, number> = {};
+
+          for (const entry of productSnapshots) {
+            if (!entry.snap.exists()) {
+              throw new Error(
+                `Produk "${entry.productId}" tidak ditemukan.`
+              );
+            }
+
+            const product =
+              entry.snap.data() as Product;
+
+            // Legacy unlimited/manual products are untouched.
+            if (product.stockEnabled !== true) {
+              continue;
+            }
+
+            const currentStock =
+              Number(product.stock);
+
+            if (
+              !Number.isInteger(currentStock) ||
+              currentStock < 0
+            ) {
+              throw new Error(
+                `Konfigurasi stok "${product.name}" tidak valid.`
+              );
+            }
+
+            if (currentStock < entry.quantity) {
+              throw new Error(
+                `Stok "${product.name}" tidak mencukupi. ` +
+                  `Tersedia ${currentStock} pcs, ` +
+                  `diminta ${entry.quantity} pcs.`
+              );
+            }
+
+            txn.update(entry.ref, {
+              stock:
+                currentStock - entry.quantity,
+              updatedAt: createdAt,
+              inventoryOperationId:
+                orderId,
+              inventoryOrderId:
+                orderId,
+              inventoryOperationType:
+                'SALE',
+            });
+
+            inventoryTracked[
+              entry.productId
+            ] = entry.quantity;
+          }
+
+          const finalOrder: Order = {
+            ...baseOrder,
+            inventoryTracked,
+          };
+
+          txn.set(
+            orderDocRef,
+            sanitizeForFirestore(
+              finalOrder
+            )
+          );
+
+          return finalOrder;
+        }
+      );
     } catch (saveErr) {
-      console.warn('[HUMA Firestore] Save order to Firestore deferred to local offline storage:', saveErr);
-      if (errorService.classify(saveErr) === 'QUOTA_ERROR') {
+      console.warn(
+        '[HUMA Firestore] Atomic order transaction failed:',
+        saveErr
+      );
+
+      if (
+        errorService.classify(saveErr) ===
+        'QUOTA_ERROR'
+      ) {
         markQuotaExceeded();
       }
+
+      // Inventory orders must fail safely. Do not create a
+      // local-only success record when Firestore did not commit.
+      throw saveErr;
     }
 
-    // Always update local persistent storage so the order is immediately visible and safe!
+    // Firestore transaction succeeded.
     appendOrUpdateStoredOrder(newOrder);
 
     // 4. Update Daily Analytics document and Promo usage if permissions allow
@@ -1235,55 +1383,278 @@ export class FirestoreService {
     cancellationReason?: string
   ): Promise<void> {
     const orderRef = doc(db, 'orders', orderId);
+
+    if (newStatus === 'CANCELLED') {
+      const result = await runTransaction(
+        db,
+        async (txn) => {
+          const orderSnap =
+            await txn.get(orderRef);
+
+          if (!orderSnap.exists()) {
+            throw new Error(
+              'Pesanan tidak ditemukan.'
+            );
+          }
+
+          const currentOrder = {
+            id: orderSnap.id,
+            ...orderSnap.data(),
+          } as Order;
+
+          // Idempotent cancellation:
+          // a second cancellation never restores stock again.
+          if (
+            currentOrder.status === 'CANCELLED'
+          ) {
+            return {
+              changed: false,
+              order: currentOrder,
+            };
+          }
+
+          const tracked =
+            currentOrder.inventoryTracked ||
+            {};
+
+          const productEntries =
+            Object.entries(tracked)
+              .filter(
+                ([, quantity]) =>
+                  Number.isInteger(
+                    Number(quantity)
+                  ) &&
+                  Number(quantity) > 0
+              )
+              .map(
+                ([productId, quantity]) => ({
+                  productId,
+                  quantity: Number(quantity),
+                  ref: doc(
+                    db,
+                    'products',
+                    productId
+                  ),
+                })
+              );
+
+          const productSnapshots = [];
+
+          for (const entry of productEntries) {
+            const snap = await txn.get(
+              entry.ref
+            );
+
+            productSnapshots.push({
+              ...entry,
+              snap,
+            });
+          }
+
+          const updatedAt =
+            new Date().toISOString();
+
+          for (const entry of productSnapshots) {
+            if (!entry.snap.exists()) {
+              throw new Error(
+                `Produk "${entry.productId}" tidak ditemukan sehingga stok tidak dapat dikembalikan.`
+              );
+            }
+
+            const product =
+              entry.snap.data() as Product;
+
+            const currentStock =
+              Number(product.stock);
+
+            if (
+              !Number.isInteger(currentStock) ||
+              currentStock < 0
+            ) {
+              throw new Error(
+                `Konfigurasi stok produk "${product.name}" tidak valid.`
+              );
+            }
+
+            txn.update(entry.ref, {
+              stock:
+                currentStock + entry.quantity,
+              updatedAt,
+              inventoryOperationId:
+                `cancel_${orderId}`,
+              inventoryOrderId:
+                orderId,
+              inventoryOperationType:
+                'CANCEL',
+            });
+          }
+
+          const finalOrder: Order = {
+            ...currentOrder,
+            status: 'CANCELLED',
+            updatedAt,
+            inventoryRestored: true,
+            inventoryRestorationOperationId:
+              `cancel_${orderId}`,
+          };
+
+          if (cancellationReason) {
+            finalOrder.cancellationReason =
+              cancellationReason;
+          }
+
+          txn.update(
+            orderRef,
+            sanitizeForFirestore(
+              finalOrder
+            ) as any
+          );
+
+          return {
+            changed: true,
+            order: finalOrder,
+          };
+        }
+      );
+
+      if (!result.changed) {
+        return;
+      }
+
+      appendOrUpdateStoredOrder(
+        result.order
+      );
+
+      // Keep existing cancellation analytics.
+      try {
+        const today = (
+          result.order.createdAt ||
+          new Date().toISOString()
+        ).substring(0, 10);
+
+        const analyticsDocRef =
+          doc(
+            db,
+            'analyticsDaily',
+            today
+          );
+
+        await setDoc(
+          analyticsDocRef,
+          {
+            cancelledOrders:
+              increment(1),
+          },
+          { merge: true }
+        );
+
+        try {
+          await this.reversePointsForCancelledOrder(
+            result.order.id,
+            result.order.orderNumber
+          );
+        } catch (revErr) {
+          console.warn(
+            '[HUMA Loyalty] Error reversing points on cancellation:',
+            revErr
+          );
+        }
+      } catch (analyticsErr) {
+        console.warn(
+          '[HUMA] Skipping cancellation analytics:',
+          analyticsErr
+        );
+      }
+
+      return;
+    }
+
+    // All non-cancellation status behavior remains unchanged.
     const updates: Partial<Order> = {
       status: newStatus,
       updatedAt: new Date().toISOString(),
     };
+
     if (cancellationReason) {
-      updates.cancellationReason = cancellationReason;
+      updates.cancellationReason =
+        cancellationReason;
     }
 
     try {
-      await updateDoc(orderRef, sanitizeForFirestore(updates));
+      await updateDoc(
+        orderRef,
+        sanitizeForFirestore(updates)
+      );
     } catch (upErr) {
-      console.warn('[HUMA Firestore] Update order status deferred to local offline storage:', upErr);
-      if (errorService.classify(upErr) === 'QUOTA_ERROR') {
+      console.warn(
+        '[HUMA Firestore] Update order status deferred to local offline storage:',
+        upErr
+      );
+
+      if (
+        errorService.classify(upErr) ===
+        'QUOTA_ERROR'
+      ) {
         markQuotaExceeded();
       }
     }
 
-    // Always update local persistent storage so changes reflect immediately
-    appendOrUpdateStoredOrder({ id: orderId, ...updates } as Order);
+    appendOrUpdateStoredOrder({
+      id: orderId,
+      ...updates,
+    } as Order);
 
-    // If order is completed or cancelled, adjust analytics count
     try {
-      const snap = await getDoc(orderRef);
+      const snap =
+        await getDoc(orderRef);
+
       if (snap.exists()) {
-        const order = snap.data() as Order;
-        const today = (order.createdAt || new Date().toISOString()).substring(0, 10);
-        const analyticsDocRef = doc(db, 'analyticsDaily', today);
+        const order =
+          snap.data() as Order;
+
+        const today = (
+          order.createdAt ||
+          new Date().toISOString()
+        ).substring(0, 10);
+
+        const analyticsDocRef =
+          doc(
+            db,
+            'analyticsDaily',
+            today
+          );
 
         if (newStatus === 'COMPLETED') {
-          await setDoc(analyticsDocRef, { completedOrders: increment(1) }, { merge: true });
-          // Award loyalty points to customer
+          await setDoc(
+            analyticsDocRef,
+            {
+              completedOrders:
+                increment(1),
+            },
+            { merge: true }
+          );
+
           try {
-            const settings = await this.getStoreSettings();
-            await this.earnPointsForOrder(order, settings);
+            const settings =
+              await this.getStoreSettings();
+
+            await this.earnPointsForOrder(
+              order,
+              settings
+            );
           } catch (pointErr) {
-            console.warn('[HUMA Loyalty] Error awarding points on completion:', pointErr);
-          }
-        } else if (newStatus === 'CANCELLED') {
-          await setDoc(analyticsDocRef, { cancelledOrders: increment(1) }, { merge: true });
-          // Reverse points earned from this order
-          try {
-            await this.reversePointsForCancelledOrder(order.id, order.orderNumber);
-          } catch (revErr) {
-            console.warn('[HUMA Loyalty] Error reversing points on cancellation:', revErr);
+            console.warn(
+              '[HUMA Loyalty] Error awarding points on completion:',
+              pointErr
+            );
           }
         }
       }
     } catch (analyticsErr) {
-      console.warn('[HUMA] Skipping order status analytics aggregation:', analyticsErr);
+      console.warn(
+        '[HUMA] Skipping order status analytics aggregation:',
+        analyticsErr
+      );
     }
   }
 
@@ -1998,9 +2369,9 @@ export class FirestoreService {
           name: 'Es Teh Manis Jumbo Gratis',
           type: 'PRODUCT',
           pointsCost: 50,
+          productId: 'prod-teh-jumbo',
           productName: 'Es Teh Manis Jumbo Segar',
           description: 'Tukarkan 50 poin loyalitas untuk 1 cup Es Teh Manis Jumbo Segar.',
-          stock: 99,
           isActive: true,
           redeemCount: 14,
           createdAt: now,
@@ -2071,7 +2442,25 @@ export class FirestoreService {
       createdAt: reward.createdAt || new Date().toISOString(),
     };
 
-    await setDoc(docRef, sanitizeForFirestore(fullReward), { merge: true });
+    const cleanReward = sanitizeForFirestore(fullReward) as unknown as Record<
+      string,
+      unknown
+    >;
+
+    // PRODUCT rewards with a master product must never keep a
+    // duplicate reward-level stock value.
+    if (
+      fullReward.type === 'PRODUCT' &&
+      fullReward.productId
+    ) {
+      cleanReward.stock = deleteField();
+    }
+
+    await setDoc(
+      docRef,
+      cleanReward,
+      { merge: true }
+    );
   }
 
   public static async deleteReward(rewardId: string): Promise<void> {
@@ -2396,7 +2785,11 @@ export class FirestoreService {
       if (reward.validUntil && new Date(reward.validUntil) < new Date()) {
         throw new Error('Masa berlaku reward telah berakhir.');
       }
-      if (reward.stock !== undefined && reward.stock <= 0) {
+      if (
+        reward.type !== 'PRODUCT' &&
+        reward.stock !== undefined &&
+        reward.stock <= 0
+      ) {
         throw new Error('Stok kuota reward telah habis.');
       }
 
@@ -2407,6 +2800,63 @@ export class FirestoreService {
       const currentBalance = custData.pointsBalance || 0;
       const newBalance = currentBalance - reward.pointsCost;
 
+      if (
+        reward.type === 'PRODUCT' &&
+        reward.productId
+      ) {
+        const productRef = doc(
+          db,
+          'products',
+          reward.productId
+        );
+
+        const productDoc = await txn.get(
+          productRef
+        );
+
+        if (!productDoc.exists()) {
+          throw new Error(
+            'Produk reward tidak ditemukan.'
+          );
+        }
+
+        const product =
+          productDoc.data() as Product;
+
+        if (product.stockEnabled !== true) {
+          throw new Error(
+            `Stok master produk "${product.name}" belum aktif.`
+          );
+        }
+
+        const currentStock =
+          Number(product.stock);
+
+        if (
+          !Number.isInteger(currentStock) ||
+          currentStock < 0
+        ) {
+          throw new Error(
+            `Konfigurasi stok produk "${product.name}" tidak valid.`
+          );
+        }
+
+        if (currentStock <= 0) {
+          throw new Error(
+            `Stok "${product.name}" telah habis.`
+          );
+        }
+
+        txn.update(productRef, {
+          stock: currentStock - 1,
+          updatedAt: now,
+          inventoryOperationId:
+            redemptionRef.id,
+          inventoryOperationType:
+            'REDEEM_REWARD',
+        });
+      }
+
       txn.update(customerRef, {
         pointsBalance: newBalance,
         updatedAt: now,
@@ -2414,10 +2864,16 @@ export class FirestoreService {
 
       // Decrement reward stock if tracked
       const rewardUpdates: Record<string, any> = {
-        redeemCount: (reward.redeemCount || 0) + 1,
+        redeemCount:
+          (reward.redeemCount || 0) + 1,
+        lastRedemptionId: redemptionRef.id,
       };
-      if (reward.stock !== undefined) {
-        rewardUpdates.stock = Math.max(0, reward.stock - 1);
+      if (
+        reward.type !== 'PRODUCT' &&
+        reward.stock !== undefined
+      ) {
+        rewardUpdates.stock =
+          Math.max(0, reward.stock - 1);
       }
       txn.update(rewardRef, rewardUpdates);
 
@@ -2450,6 +2906,7 @@ export class FirestoreService {
         productId: reward.productId,
         productName: reward.productName,
         orderId,
+        inventoryOperationId: redemptionRef.id,
         createdAt: now,
         createdBy: adminName || 'Admin',
         status: 'COMPLETED',
@@ -2506,7 +2963,11 @@ export class FirestoreService {
     if (reward.validUntil && new Date(reward.validUntil) < new Date()) {
       throw new Error('Masa berlaku hadiah telah berakhir.');
     }
-    if (reward.stock !== undefined && reward.stock <= 0) {
+    if (
+      reward.type !== 'PRODUCT' &&
+      reward.stock !== undefined &&
+      reward.stock <= 0
+    ) {
       throw new Error('Kuota stok hadiah ini telah habis.');
     }
 
@@ -2534,11 +2995,73 @@ export class FirestoreService {
       }
       const custData = custDoc.data() as Customer;
       const currentBalance = custData.pointsBalance || 0;
+
       if (currentBalance < reward.pointsCost) {
-        throw new Error(`Saldo poin tidak mencukupi saat proses transaksi (${currentBalance} poin).`);
+        throw new Error(
+          `Saldo poin tidak mencukupi saat proses transaksi (${currentBalance} poin).`
+        );
       }
 
-      const newBalance = currentBalance - reward.pointsCost;
+      // PRODUCT reward consumes the same master stock used by sales.
+      if (
+        reward.type === 'PRODUCT' &&
+        reward.productId
+      ) {
+        const productRef = doc(
+          db,
+          'products',
+          reward.productId
+        );
+
+        const productDoc = await txn.get(
+          productRef
+        );
+
+        if (!productDoc.exists()) {
+          throw new Error(
+            'Produk reward tidak ditemukan.'
+          );
+        }
+
+        const product =
+          productDoc.data() as Product;
+
+        if (product.stockEnabled !== true) {
+          throw new Error(
+            `Stok master produk "${product.name}" belum aktif.`
+          );
+        }
+
+        const currentStock =
+          Number(product.stock);
+
+        if (
+          !Number.isInteger(currentStock) ||
+          currentStock < 0
+        ) {
+          throw new Error(
+            `Konfigurasi stok produk "${product.name}" tidak valid.`
+          );
+        }
+
+        if (currentStock <= 0) {
+          throw new Error(
+            `Stok "${product.name}" telah habis.`
+          );
+        }
+
+        txn.update(productRef, {
+          stock: currentStock - 1,
+          updatedAt: now,
+          inventoryOperationId:
+            redemptionRef.id,
+          inventoryOperationType:
+            'REDEEM_REWARD',
+        });
+      }
+
+      const newBalance =
+        currentBalance - reward.pointsCost;
 
       txn.update(customerRef, {
         pointsBalance: newBalance,
@@ -2547,10 +3070,16 @@ export class FirestoreService {
 
       // Decrement reward stock if tracked
       const rewardUpdates: Record<string, any> = {
-        redeemCount: (reward.redeemCount || 0) + 1,
+        redeemCount:
+          (reward.redeemCount || 0) + 1,
+        lastRedemptionId: redemptionRef.id,
       };
-      if (reward.stock !== undefined) {
-        rewardUpdates.stock = Math.max(0, reward.stock - 1);
+      if (
+        reward.type !== 'PRODUCT' &&
+        reward.stock !== undefined
+      ) {
+        rewardUpdates.stock =
+          Math.max(0, reward.stock - 1);
       }
       txn.update(rewardRef, rewardUpdates);
 
@@ -2587,6 +3116,7 @@ export class FirestoreService {
         productName: reward.productName,
         discountAmount: reward.discountValue,
         pointsBalanceAfter: newBalance,
+        inventoryOperationId: redemptionRef.id,
         createdAt: now,
         createdBy: 'CUSTOMER_INSTANT',
         status: 'COMPLETED',
