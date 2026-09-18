@@ -40,6 +40,11 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
   const [maxSelection, setMaxSelection] = useState(1);
   const [items, setItems] = useState<ModifierItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stockManagerGroup, setStockManagerGroup] = useState<ModifierGroup | null>(null);
+  const [stockDrafts, setStockDrafts] = useState<
+    Record<string, { stockEnabled: boolean; stock: number; isAvailable: boolean }>
+  >({});
+  const [isStockSubmitting, setIsStockSubmitting] = useState(false);
 
   const handleOpenNew = () => {
     setEditingGroup(null);
@@ -96,12 +101,20 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
     const cleanItems = items
       .filter((it) => it.name.trim().length > 0)
       .map((it, idx) => {
-        const isAvail = it.isAvailable !== false && it.status !== 'SOLD_OUT';
+        const stockEnabled = it.stockEnabled === true;
+        const stock = stockEnabled
+          ? Math.max(0, Math.floor(Number(it.stock) || 0))
+          : it.stock;
+        const currentAvailable = it.isAvailable !== false && it.status !== 'SOLD_OUT';
+        const isAvail = stockEnabled && stock <= 0 ? false : currentAvailable;
+
         return {
           id: it.id || `mod_${Date.now()}_${idx}`,
           name: it.name.trim(),
           price: Number(it.price) || 0,
           isActive: it.isActive !== false,
+          stockEnabled,
+          stock,
           isAvailable: isAvail,
           status: (isAvail ? 'AVAILABLE' : 'SOLD_OUT') as 'AVAILABLE' | 'SOLD_OUT',
           sortOrder: idx + 1,
@@ -158,17 +171,88 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
         if (it.id !== itemId) return it;
         const currentAvail = it.isAvailable !== false && it.status !== 'SOLD_OUT';
         const nextAvail = !currentAvail;
+
+        if (nextAvail && it.stockEnabled === true && Number(it.stock || 0) <= 0) {
+          throw new Error(`Stok "${it.name}" masih 0. Tambahkan stok terlebih dahulu.`);
+        }
+
         return {
           ...it,
           isAvailable: nextAvail,
           status: (nextAvail ? 'AVAILABLE' : 'SOLD_OUT') as 'AVAILABLE' | 'SOLD_OUT',
         };
       });
+
       await FirestoreService.updateModifierGroup(group.id, { items: updatedItems });
       onRefresh();
-    } catch (err) {
-      alert('Gagal mengubah status ketersediaan modifier.');
+    } catch (err: any) {
+      alert(err?.message || 'Gagal mengubah status ketersediaan modifier.');
     }
+  };
+
+  const handleOpenStockManager = (group: ModifierGroup) => {
+    setStockManagerGroup(group);
+
+    const drafts: Record<string, { stockEnabled: boolean; stock: number; isAvailable: boolean }> = {};
+    group.items.forEach((item) => {
+      const stock = Math.max(0, Math.floor(Number(item.stock) || 0));
+      drafts[item.id] = {
+        stockEnabled: item.stockEnabled === true,
+        stock,
+        isAvailable: item.isAvailable !== false && item.status !== 'SOLD_OUT' && (!item.stockEnabled || stock > 0),
+      };
+    });
+
+    setStockDrafts(drafts);
+  };
+
+  const handleSaveStockManager = async () => {
+    if (!stockManagerGroup) return;
+
+    setIsStockSubmitting(true);
+    try {
+      const updates = stockManagerGroup.items.map((item) => {
+        const draft = stockDrafts[item.id] || {
+          stockEnabled: item.stockEnabled === true,
+          stock: Math.max(0, Math.floor(Number(item.stock) || 0)),
+          isAvailable: item.isAvailable !== false && item.status !== 'SOLD_OUT',
+        };
+
+        const stockEnabled = draft.stockEnabled === true;
+        const stock = Math.max(0, Math.floor(Number(draft.stock) || 0));
+        const isAvailable = stockEnabled && stock <= 0 ? false : draft.isAvailable !== false;
+
+        return {
+          modifierId: item.id,
+          stockEnabled,
+          stock,
+          isAvailable,
+        };
+      });
+
+      await FirestoreService.updateModifierStocks(stockManagerGroup.id, updates);
+      setStockManagerGroup(null);
+      setStockDrafts({});
+      onRefresh();
+    } catch (err: any) {
+      errorService.capture(err, { action: 'updateModifierStocks', groupId: stockManagerGroup.id });
+      alert(err?.message || 'Gagal menyimpan stok modifier.');
+    } finally {
+      setIsStockSubmitting(false);
+    }
+  };
+
+  const updateStockDraft = (
+    itemId: string,
+    patch: Partial<{ stockEnabled: boolean; stock: number; isAvailable: boolean }>
+  ) => {
+    setStockDrafts((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || { stockEnabled: false, stock: 0, isAvailable: true }),
+        ...patch,
+      },
+    }));
   };
 
   // Search Engine Metrics & Computed Filtered Modifier Groups
@@ -373,14 +457,26 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
 
               <div className="flex items-center gap-1">
                 <button
+                  type="button"
+                  onClick={() => handleOpenStockManager(group)}
+                  className="px-2 py-1.5 rounded-lg text-[10px] font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                  title="Kelola stok semua opsi di grup ini"
+                >
+                  Stok
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleOpenEdit(group)}
                   className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-[#2E1A47]"
+                  title="Edit grup modifier"
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDeleteGroup(group)}
                   className="p-1.5 rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+                  title="Hapus grup modifier"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -408,6 +504,15 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
                       {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}
                     </span>
                     <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
+                        item.stockEnabled === true
+                          ? 'bg-sky-100 text-sky-800'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {item.stockEnabled === true ? `Stok: ${Math.max(0, Number(item.stock) || 0)}` : 'Stok: ∞'}
+                    </span>
+                    <span
                       className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
                         isAvail
                           ? 'bg-emerald-100 text-emerald-800'
@@ -424,6 +529,135 @@ export const AdminModifierManager: React.FC<AdminModifierManagerProps> = ({
         ))}
         </div>
       )}
+
+
+      {/* Modifier Stock Management Modal */}
+      <Modal
+        isOpen={!!stockManagerGroup}
+        onClose={() => {
+          if (!isStockSubmitting) {
+            setStockManagerGroup(null);
+            setStockDrafts({});
+          }
+        }}
+        title={stockManagerGroup ? `Kelola Stok: ${stockManagerGroup.name}` : 'Kelola Stok Modifier'}
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-900">
+            Aktifkan <strong>Kelola stok</strong> hanya untuk opsi yang memang memiliki persediaan terbatas.
+            Stok 0 otomatis membuat opsi berstatus <strong>Habis</strong>.
+          </div>
+
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {stockManagerGroup?.items.map((item) => {
+              const draft = stockDrafts[item.id] || {
+                stockEnabled: item.stockEnabled === true,
+                stock: Math.max(0, Math.floor(Number(item.stock) || 0)),
+                isAvailable: item.isAvailable !== false && item.status !== 'SOLD_OUT',
+              };
+              const stock = Math.max(0, Math.floor(Number(draft.stock) || 0));
+              const effectiveAvailable = draft.stockEnabled && stock <= 0 ? false : draft.isAvailable !== false;
+
+              return (
+                <div key={item.id} className="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-[#2E1A47] truncate">{item.name}</div>
+                      <div className="text-[11px] text-gray-500">
+                        {item.price > 0 ? `+Rp ${item.price.toLocaleString('id-ID')}` : 'Gratis'}
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[9px] px-2 py-1 rounded-lg font-extrabold ${
+                        effectiveAvailable
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {effectiveAvailable ? 'TERSEDIA' : 'HABIS'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr_auto] gap-2 items-end">
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={draft.stockEnabled}
+                        onChange={(e) =>
+                          updateStockDraft(item.id, {
+                            stockEnabled: e.target.checked,
+                            isAvailable: e.target.checked && stock <= 0 ? false : draft.isAvailable,
+                          })
+                        }
+                        className="rounded-sm text-[#FF4500]"
+                      />
+                      <span>Kelola stok</span>
+                    </label>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1">
+                        Stok saat ini
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={draft.stock}
+                        onChange={(e) =>
+                          updateStockDraft(item.id, {
+                            stock: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                            isAvailable:
+                              draft.stockEnabled && Number(e.target.value) <= 0
+                                ? false
+                                : draft.isAvailable,
+                          })
+                        }
+                        disabled={!draft.stockEnabled}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-xs font-extrabold disabled:bg-gray-100 disabled:text-gray-400"
+                      />
+                    </div>
+
+                    <label className="flex items-center justify-center gap-2 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-2 min-h-[38px]">
+                      <input
+                        type="checkbox"
+                        checked={effectiveAvailable}
+                        disabled={draft.stockEnabled && stock <= 0}
+                        onChange={(e) => updateStockDraft(item.id, { isAvailable: e.target.checked })}
+                        className="rounded-sm text-[#FF4500]"
+                      />
+                      <span>Tersedia</span>
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-3 border-t border-gray-100 flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={isStockSubmitting}
+              onClick={() => {
+                setStockManagerGroup(null);
+                setStockDrafts({});
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              disabled={isStockSubmitting}
+              onClick={handleSaveStockManager}
+              className="clay-button-primary py-2 px-5 text-xs font-bold flex items-center gap-2 disabled:opacity-60"
+            >
+              {isStockSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>{isStockSubmitting ? 'Menyimpan stok...' : 'Simpan Stok'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modifier Group Edit Modal */}
       <Modal
