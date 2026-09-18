@@ -25,7 +25,6 @@ export const Modal: React.FC<ModalProps> = ({
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const modalContentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -65,11 +64,9 @@ export const Modal: React.FC<ModalProps> = ({
     const deltaX = currentX - touchStartRef.current.x;
     const deltaY = currentY - touchStartRef.current.y;
 
-    // Check if inner content is scrolled down
-    const innerScrollTop = modalContentRef.current?.scrollTop || 0;
-
-    // Detect downward pull (only if at top of scroll or dragging from handle/header)
-    if (deltaY > 0 && innerScrollTop <= 2 && deltaY > Math.abs(deltaX) * 0.8) {
+    // Downward pull is intentionally handled only from the
+    // dedicated handle/header touch zones, not the scrollable content.
+    if (deltaY > 0 && deltaY > Math.abs(deltaX) * 0.8) {
       setDragOffset({ x: 0, y: deltaY });
     } else if (deltaX > 0 && deltaX > Math.abs(deltaY) * 1.5) {
       // Swiping right to go back
@@ -161,23 +158,7 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Content Area */}
         <div
-          ref={modalContentRef}
           className="flex-1 overflow-y-auto px-5 sm:px-6 py-4"
-          onTouchStart={(e) => {
-            // If inner content is at top, allow pull-down gesture
-            if (modalContentRef.current && modalContentRef.current.scrollTop <= 2) {
-              handleTouchStart(e);
-            }
-          }}
-          onTouchMove={(e) => {
-            if (modalContentRef.current && modalContentRef.current.scrollTop <= 2 && touchStartRef.current) {
-              const deltaY = e.touches[0].clientY - touchStartRef.current.y;
-              if (deltaY > 0) {
-                handleTouchMove(e);
-              }
-            }
-          }}
-          onTouchEnd={handleTouchEnd}
         >
           {children}
         </div>
