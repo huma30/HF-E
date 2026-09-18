@@ -75,23 +75,30 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
     },
   ];
 
-  const filteredOrders = orders.filter((o) => {
-    if (selectedStatusTab !== 'ALL' && o.status !== selectedStatusTab) {
-      if (selectedStatusTab === 'CANCELLED' && (o.status === 'CANCELLED' || o.status === 'REFUNDED')) {
-        // match
-      } else {
-        return false;
+  // Always show the newest order first so staff can prepare the latest request immediately.
+  const filteredOrders = orders
+    .filter((o) => {
+      if (selectedStatusTab !== 'ALL' && o.status !== selectedStatusTab) {
+        if (selectedStatusTab === 'CANCELLED' && (o.status === 'CANCELLED' || o.status === 'REFUNDED')) {
+          // match
+        } else {
+          return false;
+        }
       }
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchNum = String(o.orderNumber || '').toLowerCase().includes(q);
-      const matchCust = String(o.customer?.name || '').toLowerCase().includes(q);
-      const matchPhone = String(o.customer?.whatsapp || '').includes(q);
-      if (!matchNum && !matchCust && !matchPhone) return false;
-    }
-    return true;
-  });
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchNum = String(o.orderNumber || '').toLowerCase().includes(q);
+        const matchCust = String(o.customer?.name || '').toLowerCase().includes(q);
+        const matchPhone = String(o.customer?.whatsapp || '').includes(q);
+        if (!matchNum && !matchCust && !matchPhone) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
 
   const handleAdvanceStatus = async (order: Order) => {
     let nextStatus: OrderStatus = 'CONFIRMED';
@@ -186,11 +193,17 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
           filteredOrders.map((order) => {
             const isCompleted = order.status === 'COMPLETED';
             const isCancelled = order.status === 'CANCELLED' || order.status === 'REFUNDED';
+            const isNewOrder = order.status === 'PENDING' && !isCompleted && !isCancelled;
 
             return (
               <div
                 key={order.id}
-                className="clay-card p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
+                className={[
+                  'clay-card p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all',
+                  isNewOrder
+                    ? 'bg-emerald-50/95 border-2 border-emerald-300 shadow-md shadow-emerald-100'
+                    : '',
+                ].join(' ')}
               >
                 {/* Left: Order Info */}
                 <div className="space-y-2 flex-1 min-w-0">
@@ -222,7 +235,7 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                     <span
                       className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                         order.status === 'PENDING'
-                          ? 'bg-amber-100 text-amber-800 animate-pulse'
+                          ? 'bg-emerald-600 text-white animate-pulse'
                           : order.status === 'PREPARING'
                           ? 'bg-orange-100 text-orange-800'
                           : order.status === 'COMPLETED'
@@ -232,7 +245,7 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                           : 'bg-purple-100 text-purple-800'
                       }`}
                     >
-                      {order.status}
+                      {order.status === 'PENDING' ? 'PESANAN BARU' : order.status}
                     </span>
                   </div>
 
@@ -250,7 +263,14 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                   </div>
 
                   {/* Items summary */}
-                  <div className="text-xs text-gray-600 bg-gray-50/80 p-2 rounded-xl border border-gray-100">
+                  <div
+                    className={[
+                      'text-xs text-gray-600 p-2 rounded-xl border',
+                      isNewOrder
+                        ? 'bg-white/80 border-emerald-200'
+                        : 'bg-gray-50/80 border-gray-100',
+                    ].join(' ')}
+                  >
                     {order.items.map((item, idx) => (
                       <div key={idx} className="flex justify-between py-0.5">
                         <span>
