@@ -308,8 +308,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     // 5. Submit Order
+    let waWin: Window | null = null;
+
     try {
       setIsProcessing(true);
+
+      // Open the new tab synchronously from the user's checkout gesture.
+      // The real WhatsApp URL is assigned only after Firestore confirms the order.
+      waWin = window.open('about:blank', '_blank');
 
       const customerData: Order['customer'] = {
         name: customerName.trim(),
@@ -353,13 +359,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       const createdOrder = await FirestoreService.createOrder(orderPayload);
       soundService.playNewOrderChime();
 
-      // Direct redirect ke WhatsApp Admin dengan rincian order dinamis
+      // Order is now safely committed. Navigate the already-open tab to WhatsApp.
       const cleanStorePhone = (settings?.whatsapp || '085878775527').replace(/^0/, '62').replace(/\D/g, '');
       const waUrl = WhatsAppService.getWhatsAppUrl(createdOrder, cleanStorePhone);
 
       try {
-        const waWin = window.open(waUrl, '_blank');
-        if (!waWin || waWin.closed || typeof waWin.closed === 'undefined') {
+        if (waWin && !waWin.closed) {
+          waWin.location.href = waUrl;
+        } else {
           window.location.href = waUrl;
         }
       } catch {
@@ -370,6 +377,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       onClose();
       onOrderSuccess(createdOrder);
     } catch (err: any) {
+      if (waWin && !waWin.closed) {
+        try {
+          waWin.close();
+        } catch {}
+      }
+
       console.error('Order creation error:', err);
       setErrorMessage(
         err?.message || 'Gagal memproses pesanan. Silakan coba sesaat lagi.'
