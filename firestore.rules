@@ -104,11 +104,17 @@ service cloud.firestore {
     // ------------------------------------------------------------
 
     match /orders/{orderId} {
-      allow create: if
-        request.resource.data.source == 'WEB'
-        && request.resource.data.status == 'PENDING';
+      // WEB/POS order dibuat melalui Firebase Functions
+      // agar perubahan stok berlangsung dalam transaksi atomik.
+      allow create: if false;
 
-      allow read, update, delete: if staff();
+      allow read: if staff();
+
+      // Pembatalan wajib melalui cancelOrderWithInventory.
+      allow update: if staff()
+        && request.resource.data.status != 'CANCELLED';
+
+      allow delete: if staff();
     }
 
     // ------------------------------------------------------------
@@ -144,32 +150,42 @@ service cloud.firestore {
     // ------------------------------------------------------------
     // CUSTOMER / LOYALTY
     //
-    // TEMPORARY COMPATIBILITY:
-    // Current browser implementation performs customer + loyalty
-    // operations without Firebase customer authentication.
+    // Spark-only security model:
+    // - Customers may READ loyalty data through the existing
+    //   phone-based lookup flow.
+    // - Customers must NEVER be able to WRITE customer balances,
+    //   ledgers, redemptions, or transaction records directly.
+    // - Loyalty mutations are performed by authenticated HUMA staff.
     //
-    // These remain temporarily writable so existing loyalty features
-    // do not break. This is NOT considered production-secure.
+    // IMPORTANT:
+    // Public READ is retained for compatibility with the current
+    // phone-number lookup flow. This is a privacy limitation,
+    // not proof of phone ownership.
     // ------------------------------------------------------------
 
     match /customers/{customerId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if staff();
     }
 
     match /pointLedger/{ledgerId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if staff();
     }
 
     match /pointRedemptions/{redemptionId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if staff();
     }
 
     match /pointRewards/{rewardId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if staff();
     }
 
     match /pointTransactions/{transactionId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if staff();
     }
 
     // ------------------------------------------------------------

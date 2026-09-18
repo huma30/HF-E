@@ -106,6 +106,11 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
       return;
     }
 
+    if (formType === 'PRODUCT' && !formProductId) {
+      alert('Hadiah PRODUCT wajib ditautkan ke menu agar menggunakan stok master produk.');
+      return;
+    }
+
     setIsSaving(true);
     setSaveStage('Menyiapkan gambar...');
     try {
@@ -133,7 +138,10 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
         productName: formType === 'PRODUCT' ? linkedProduct?.name || formName.trim() : undefined,
         imageUrl: finalImageUrl || undefined,
         description: formDescription.trim(),
-        stock: formStock.trim() !== '' ? Number(formStock) : undefined,
+        stock:
+          formType === 'DISCOUNT' && formStock.trim() !== ''
+            ? Number(formStock)
+            : undefined,
         validUntil: formValidUntil ? new Date(formValidUntil).toISOString() : undefined,
         isActive: formIsActive,
       });
@@ -310,11 +318,41 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100 text-xs text-gray-500">
                     <div className="flex items-center gap-3 text-[11px]">
-                      {reward.stock !== undefined && (
+                      {reward.type === 'PRODUCT' && reward.productId ? (
+                        (() => {
+                          const linkedProduct = products.find(
+                            (p) => p.id === reward.productId
+                          );
+
+                          if (!linkedProduct) {
+                            return (
+                              <span className="font-semibold text-red-600">
+                                Produk tidak ditemukan
+                              </span>
+                            );
+                          }
+
+                          if (linkedProduct.stockEnabled !== true) {
+                            return (
+                              <span className="font-semibold text-amber-700">
+                                Stok master belum aktif
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <span className="font-semibold text-gray-700">
+                              Stok Master:{' '}
+                              <strong>{linkedProduct.stock ?? 0}</strong>
+                            </span>
+                          );
+                        })()
+                      ) : reward.type === 'DISCOUNT' &&
+                        reward.stock !== undefined ? (
                         <span className="font-semibold text-gray-700">
                           Sisa Kuota: <strong>{reward.stock}</strong>
                         </span>
-                      )}
+                      ) : null}
                       <span>
                         Telah Ditukar: <strong>{reward.redeemCount || 0}x</strong>
                       </span>
@@ -474,9 +512,10 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
               {formType === 'PRODUCT' && (
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">
-                    Tautkan ke Menu Makanan/Minuman (Opsional):
+                    Tautkan ke Menu Makanan/Minuman (Wajib):
                   </label>
                   <select
+                    required
                     value={formProductId}
                     onChange={(e) => {
                       setFormProductId(e.target.value);
@@ -494,6 +533,25 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
                       </option>
                     ))}
                   </select>
+
+                  {(() => {
+                    const linkedProduct = products.find(
+                      (p) => p.id === formProductId
+                    );
+
+                    if (!linkedProduct) return null;
+
+                    return (
+                      <div className="mt-1 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-[11px] text-blue-700">
+                        Stok reward mengikuti stok master{' '}
+                        <strong>{linkedProduct.name}</strong>:{' '}
+                        {linkedProduct.stockEnabled === true
+                          ? `${linkedProduct.stock ?? 0} unit`
+                          : 'belum diaktifkan'}.
+                        Tidak ada stok reward terpisah untuk PRODUCT.
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -542,6 +600,9 @@ export const AdminRewards: React.FC<AdminRewardsProps> = ({ products }) => {
                     placeholder="Kosongkan jika tak terbatas"
                     className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200"
                   />
+                  <p className="mt-1 text-[10px] text-gray-400">
+                    Khusus DISCOUNT. PRODUCT menggunakan stok master menu.
+                  </p>
                 </div>
               </div>
 
