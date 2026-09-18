@@ -36,9 +36,18 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
       ? Math.min(...product.wholesaleRules.map((r) => r.price))
       : null;
 
+  // Master stock availability.
+  // Legacy/untracked products retain the existing unlimited behavior.
+  const stockLimited = product.stockEnabled === true;
+  const stockRemaining = stockLimited
+    ? Math.max(0, Math.floor(Number(product.stock) || 0))
+    : null;
+  const isStockExhausted = stockLimited && stockRemaining === 0;
+  const canPurchase = product.isAvailable && !isStockExhausted;
+
   const handleAction = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!product.isAvailable) return;
+    if (!canPurchase) return;
 
     // If product has category batch modifier and no standalone required modifiers, quick add directly with NO popup
     if (isBatchCategory && !hasRequiredModifiers) {
@@ -54,7 +63,7 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
     <div
       id={`product-card-${product.id}`}
       onClick={() => {
-        if (!product.isAvailable) return;
+        if (!canPurchase) return;
         if (isBatchCategory && !hasRequiredModifiers && standaloneGroupIds.length === 0) {
           onQuickAdd(product);
         } else {
@@ -62,7 +71,7 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
         }
       }}
       className={`clay-card clay-card-interactive flex flex-col justify-between overflow-hidden cursor-pointer group p-3 sm:p-3.5 relative ${
-        !product.isAvailable ? 'opacity-60 pointer-events-none' : ''
+        !canPurchase ? 'opacity-60 pointer-events-none' : ''
       }`}
     >
       {/* Image Container */}
@@ -94,10 +103,10 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
           )}
         </div>
 
-        {!product.isAvailable && (
+        {!canPurchase && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center">
             <span className="px-3 py-1 rounded-full bg-red-600 text-white text-xs font-extrabold tracking-wide uppercase shadow-md">
-              Habis
+              {isStockExhausted ? 'Stok Habis' : 'Habis'}
             </span>
           </div>
         )}
@@ -131,6 +140,8 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
           <button
             id={`btn-add-${product.id}`}
             onClick={handleAction}
+            disabled={!canPurchase}
+            aria-disabled={!canPurchase}
             aria-label={`Pilih ${product.name}`}
             className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#2E1A47] hover:bg-[#FF4500] text-white shadow-md active:scale-90 transition-all"
           >

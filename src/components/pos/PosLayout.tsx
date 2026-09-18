@@ -180,7 +180,18 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
 
   // Fast add product to POS cart
   const handleProductClick = (product: Product) => {
+    const stockLimited = product.stockEnabled === true;
+    const stockRemaining = stockLimited
+      ? Math.max(0, Math.floor(Number(product.stock) || 0))
+      : null;
+
     if (!product.isAvailable) return;
+
+    if (stockLimited && stockRemaining === 0) {
+      alert(`Stok "${product.name}" saat ini habis.`);
+      return;
+    }
+
     const prodModGroups = modifierGroups.filter(
       (g) => product.modifierGroupIds?.includes(g.id) && g.isActive
     );
@@ -199,6 +210,36 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
     selectedModifiers: SelectedModifier[],
     notes?: string
   ) => {
+    const stockLimited = product.stockEnabled === true;
+    const stockRemaining = stockLimited
+      ? Math.max(0, Math.floor(Number(product.stock) || 0))
+      : null;
+
+    if (!product.isAvailable) {
+      alert(`Produk "${product.name}" saat ini tidak tersedia.`);
+      return;
+    }
+
+    if (stockLimited && stockRemaining === 0) {
+      alert(`Stok "${product.name}" saat ini habis.`);
+      return;
+    }
+
+    if (stockLimited && stockRemaining !== null) {
+      const currentProductQty = posCart
+        .filter((item) => item.productId === product.id)
+        .reduce((sum, item) => sum + item.quantity, 0);
+
+      if (currentProductQty + quantity > stockRemaining) {
+        alert(
+          `Stok "${product.name}" tidak mencukupi. ` +
+          `Tersedia ${stockRemaining} pcs, ` +
+          `di cart sudah ${currentProductQty} pcs.`
+        );
+        return;
+      }
+    }
+
     const safeNotes = typeof notes === 'string' ? notes.trim() : '';
     const modSignature = (selectedModifiers || [])
       .map((m) => `${m.groupId}:${m.item?.id || ''}`)

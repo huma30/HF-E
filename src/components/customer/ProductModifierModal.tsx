@@ -57,6 +57,14 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
 
   const totalCalculated = (unitPrice + modifiersPrice) * quantity;
 
+  // Master stock limit for the base product.
+  // When stock tracking is disabled, preserve the existing unlimited behavior.
+  const stockLimited = product.stockEnabled === true;
+  const stockRemaining = stockLimited
+    ? Math.max(0, Math.floor(Number(product.stock) || 0))
+    : null;
+  const isProductStockExhausted = stockLimited && stockRemaining === 0;
+
   // Toggle or select modifier item
   const handleToggleModifier = (group: ModifierGroup, item: any) => {
     setValidationError(null);
@@ -100,6 +108,23 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
   };
 
   const handleConfirm = () => {
+    if (!product.isAvailable) {
+      setValidationError(`Produk "${product.name}" saat ini tidak tersedia.`);
+      return;
+    }
+
+    if (isProductStockExhausted) {
+      setValidationError(`Stok "${product.name}" saat ini habis.`);
+      return;
+    }
+
+    if (stockLimited && stockRemaining !== null && quantity > stockRemaining) {
+      setValidationError(
+        `Stok "${product.name}" tidak mencukupi. Tersedia ${stockRemaining} pcs.`
+      );
+      return;
+    }
+
     // Check if any selected modifier is sold out
     const soldOutItem = selectedModifiers.find(
       (m) => m.item.isAvailable === false || m.item.status === 'SOLD_OUT'
@@ -306,7 +331,8 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
             </span>
             <button
               onClick={() => setQuantity((q) => q + 1)}
-              className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 shadow-xs transition-all"
+              disabled={stockLimited && stockRemaining !== null && quantity >= stockRemaining}
+              className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 shadow-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
