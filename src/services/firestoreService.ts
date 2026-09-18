@@ -36,7 +36,6 @@ import {
   PointRedemption,
 } from '../types';
 import { errorService } from './errorService';
-import { InventoryService } from './inventoryService';
 import {
   normalizeProductName,
   normalizeSku,
@@ -1148,57 +1147,6 @@ export class FirestoreService {
     const safeDeliveryFee = Math.max(0, orderInput.deliveryFee || 0);
     const computedTotal = Math.max(0, computedSubtotal - safeDiscount + safeDeliveryFee);
 
-      /*
-       * WEB dan POS selalu melalui backend inventory setelah
-       * batch modifier dan pricing integrity selesai divalidasi.
-       * Backend menjadi sumber kebenaran stockEnabled dan stock.
-       */
-      if (
-        orderInput.source === 'WEB' ||
-        orderInput.source === 'POS'
-      ) {
-        const normalizedOrderInput: Omit<
-          Order,
-          'id' | 'orderNumber' | 'createdAt'
-        > = {
-          ...orderInput,
-          subtotal: computedSubtotal > 0
-            ? computedSubtotal
-            : orderInput.subtotal,
-          discount: safeDiscount,
-          deliveryFee: safeDeliveryFee,
-          total: computedTotal,
-        };
-
-        const inventoryResult =
-          await InventoryService.createOrderWithInventory(
-            normalizedOrderInput
-          );
-
-        const createdOrder = inventoryResult.order;
-        appendOrUpdateStoredOrder(createdOrder);
-
-        if (
-          inventoryResult.created &&
-          createdOrder.status === 'COMPLETED'
-        ) {
-          try {
-            const settings = await this.getStoreSettings();
-            await this.earnPointsForOrder(
-              createdOrder,
-              settings
-            );
-          } catch (pointErr) {
-            console.warn(
-              '[HUMA Loyalty] Error awarding points in inventory order:',
-              pointErr
-            );
-          }
-        }
-
-        return createdOrder;
-      }
-
     // 3. Generate unique order number
     const { orderNumber } = await this.generateOrderNumber();
     const orderDocRef = doc(collection(db, 'orders'));
@@ -1295,33 +1243,17 @@ export class FirestoreService {
       updates.cancellationReason = cancellationReason;
     }
 
-    if (newStatus === 'CANCELLED') {
-      /*
-       * Cancellation must go through the backend because the same
-       * transaction also restores master inventory exactly once.
-       * We intentionally do not fall back to a local-only cancellation:
-       * that could leave stock and order status inconsistent.
-       */
-      const result =
-        await InventoryService.cancelOrderWithInventory(
-          orderId,
-          cancellationReason,
-        );
-
-      appendOrUpdateStoredOrder(result.order);
-    } else {
-      try {
-        await updateDoc(orderRef, sanitizeForFirestore(updates));
-      } catch (upErr) {
-        console.warn('[HUMA Firestore] Update order status deferred to local offline storage:', upErr);
-        if (errorService.classify(upErr) === 'QUOTA_ERROR') {
-          markQuotaExceeded();
-        }
+    try {
+      await updateDoc(orderRef, sanitizeForFirestore(updates));
+    } catch (upErr) {
+      console.warn('[HUMA Firestore] Update order status deferred to local offline storage:', upErr);
+      if (errorService.classify(upErr) === 'QUOTA_ERROR') {
+        markQuotaExceeded();
       }
-
-      // Always update local persistent storage so changes reflect immediately
-      appendOrUpdateStoredOrder({ id: orderId, ...updates } as Order);
     }
+
+    // Always update local persistent storage so changes reflect immediately
+    appendOrUpdateStoredOrder({ id: orderId, ...updates } as Order);
 
     // If order is completed or cancelled, adjust analytics count
     try {
@@ -1770,30 +1702,17 @@ export class FirestoreService {
       const cleanDigits = phone.replace(/\D/g, '');
       if (!cleanDigits || cleanDigits.length < 6) return null;
 
-      // Customer-facing lookup must never download the full customer collection.
-      // Support the two legacy HUMA formats commonly used for Indonesian numbers:
-      // 08xxxxxxxxxx <-> 62xxxxxxxxxx
-      const candidates = new Set<string>([cleanDigits]);
+      const rawCustomers = await this.getCustomers();
+      const matched = rawCustomers.find((c) => {
+        const cDigits = (c.whatsapp || '').replace(/\D/g, '');
+        if (!cDigits) return false;
+        if (cDigits === cleanDigits) return true;
+        const cTrimmed = cDigits.replace(/^0/, '').replace(/^62/, '');
+        const qTrimmed = cleanDigits.replace(/^0/, '').replace(/^62/, '');
+        return cTrimmed === qTrimmed;
+      });
 
-      if (cleanDigits.startsWith('0') && cleanDigits.length > 1) {
-        candidates.add(`62${cleanDigits.slice(1)}`);
-      } else if (cleanDigits.startsWith('62') && cleanDigits.length > 2) {
-        candidates.add(`0${cleanDigits.slice(2)}`);
-      }
-
-      const colRef = collection(db, 'customers');
-      const snap = await getDocs(
-        query(
-          colRef,
-          where('whatsapp', 'in', Array.from(candidates)),
-          limit(1)
-        )
-      );
-
-      if (snap.empty) return null;
-
-      const d = snap.docs[0];
-      return { id: d.id, ...d.data() } as Customer;
+      return matched || null;
     } catch (err) {
       console.warn('[HUMA] Handled error in getCustomerByPhone:', err);
       return null;
@@ -2448,38 +2367,6 @@ export class FirestoreService {
   }): Promise<PointRedemption> {
     const { customerId, rewardId, adminId, adminName, orderId } = params;
 
-    /*
-     * Reward PRODUCT yang terhubung ke productId menggunakan
-     * master inventory backend. Reward legacy tanpa productId
-     * tetap menggunakan transaction lama.
-     */
-    const linkedRewardRef = doc(db, 'rewards', rewardId);
-    const linkedRewardSnap = await getDoc(linkedRewardRef);
-
-    if (linkedRewardSnap.exists()) {
-      const linkedReward = {
-        id: linkedRewardSnap.id,
-        ...linkedRewardSnap.data(),
-      } as RewardItem;
-
-      if (
-        linkedReward.type === 'PRODUCT' &&
-        linkedReward.productId
-      ) {
-        const result =
-          await InventoryService.redeemProductReward({
-            mode: 'ADMIN',
-            customerId,
-            rewardId,
-            adminName,
-            orderId,
-          });
-
-        return result.redemption;
-      }
-    }
-
-
     const customerRef = doc(db, 'customers', customerId);
     const rewardRef = doc(db, 'rewards', rewardId);
     const ledgerRef = doc(collection(db, 'pointLedger'));
@@ -2613,31 +2500,6 @@ export class FirestoreService {
       throw new Error('Hadiah tidak ditemukan di katalog.');
     }
     const reward = { id: rewardSnap.id, ...rewardSnap.data() } as RewardItem;
-
-      /*
-       * Reward PRODUCT yang terhubung ke productId menggunakan
-       * master inventory backend. Reward legacy tanpa productId
-       * tetap menggunakan transaction lama.
-       */
-      if (
-        reward.type === 'PRODUCT' &&
-        reward.productId
-      ) {
-        const result =
-          await InventoryService.redeemProductReward({
-            mode: 'CUSTOMER',
-            customerId: customer.id,
-            rewardId,
-            customerPhone,
-          });
-
-        return {
-          redemption: result.redemption,
-          customer: result.customer,
-          reward: result.reward,
-        };
-      }
-
     if (!reward.isActive) {
       throw new Error('Hadiah ini sedang tidak aktif.');
     }

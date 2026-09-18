@@ -26,8 +26,9 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
-import { StoreSettings, RewardItem, Customer, Product, PointLedgerEntry } from '../../types';
+import { StoreSettings, RewardItem, Customer, Product, PointRedemption, PointLedgerEntry } from '../../types';
 import { FirestoreService } from '../../services/firestoreService';
+import { RedeemReceiptModal } from './RedeemReceiptModal';
 
 interface CustomerRewardsModalProps {
   isOpen: boolean;
@@ -62,6 +63,15 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
   // Point Ledger Mutation History
   const [pointLedger, setPointLedger] = useState<PointLedgerEntry[]>([]);
   const [isLoadingLedger, setIsLoadingLedger] = useState(false);
+
+  // Instant Redemption State
+  const [selectedRewardToRedeem, setSelectedRewardToRedeem] = useState<RewardItem | null>(null);
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+
+  // Receipt Modal State
+  const [activeReceipt, setActiveReceipt] = useState<PointRedemption | null>(null);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
 
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,38 +170,52 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
     phoneInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // Secure customer redemption flow:
-  // Customer never mutates loyalty balance directly from the browser.
-  // The request is sent to HUMA via WhatsApp for Admin/POS processing.
-  const handleRedeemRequest = (reward: RewardItem) => {
+  // Instant Redeem Handler
+  const handleInitiateRedeem = (reward: RewardItem) => {
     if (!connectedCustomer || !connectedPhone) {
       handleFocusConnectInput();
       return;
     }
+    setRedeemError(null);
+    setSelectedRewardToRedeem(reward);
+  };
 
-    const balance = connectedCustomer.pointsBalance || 0;
-    if (balance < reward.pointsCost) return;
+  const handleConfirmRedeem = async () => {
+    if (!selectedRewardToRedeem || !connectedPhone || !connectedCustomer) return;
 
-    const requestText = [
-      `Halo Admin ${settings?.storeName || 'HUMA Food'},`,
-      ``,
-      `Saya ingin mengajukan penukaran poin HUMA.`,
-      `Nama: ${connectedCustomer.name || 'Pelanggan HUMA'}`,
-      `No. WhatsApp: ${connectedPhone}`,
-      `Hadiah: *${reward.name}*`,
-      `Poin yang ditukarkan: ${reward.pointsCost} poin`,
-      `Saldo saat ini: ${balance} poin`,
-      `Perkiraan saldo setelah penukaran: ${balance - reward.pointsCost} poin`,
-      ``,
-      `Mohon konfirmasi dan proses penukarannya. Terima kasih.`,
-    ].join('\\n');
+    setIsRedeeming(true);
+    setRedeemError(null);
 
-    const targetPhone = (settings?.whatsapp || '085878775527')
-      .replace(/^0/, '62')
-      .replace(/\\D/g, '');
+    try {
+      const result = await FirestoreService.redeemInstantReward({
+        customerPhone: connectedPhone,
+        customerName: connectedCustomer.name,
+        rewardId: selectedRewardToRedeem.id,
+      });
 
-    const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(requestText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+      // Update connected customer points balance immediately
+      setConnectedCustomer(result.customer);
+      
+      // Close confirmation dialog
+      setSelectedRewardToRedeem(null);
+
+      // Open receipt modal!
+      setActiveReceipt(result.redemption);
+      setIsReceiptModalOpen(true);
+
+      // Reload rewards in background to sync stock & ledger
+      loadRewards();
+      if (result.customer?.id) {
+        FirestoreService.getPointLedger(result.customer.id, 25)
+          .then((l) => setPointLedger(l))
+          .catch(() => {});
+      }
+    } catch (err: any) {
+      console.error('Error in instant redeem:', err);
+      setRedeemError(err?.message || 'Gagal memproses penukaran poin. Silakan coba sesaat lagi.');
+    } finally {
+      setIsRedeeming(false);
+    }
   };
 
   const pointsPerRupiah = settings?.pointsPerRupiah || 10000;
@@ -338,7 +362,7 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                   </div>
                 </div>
               ) : (
-                /* Prompt to connect WhatsApp for loyalty */
+                /* Prompt to connect WhatsApp for instant redeem */
                 <div 
                   id="loyalty-connect-prompt"
                   className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-amber-50/50 to-orange-50 border border-purple-200/80 space-y-2.5 shadow-2xs"
@@ -349,10 +373,10 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                     </div>
                     <div>
                       <h4 className="font-heading font-extrabold text-xs text-[#2E1A47]">
-                        Sambungkan WhatsApp untuk Cek & Ajukan Redeem
+                        Sambungkan WhatsApp untuk Redem Instan
                       </h4>
                       <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
-                        Masukkan nomor WhatsApp yang digunakan saat memesan untuk melihat saldo poin dan mengajukan penukaran hadiah melalui WhatsApp.
+                        Masukkan nomor WhatsApp Anda untuk langsung terhubung dengan saldo poin loyalitas & tukarkan hadiah sekarang juga.
                       </p>
                     </div>
                   </div>
@@ -420,35 +444,9 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {rewards.map((reward) => {
-                    const customerBalance =
-                      connectedCustomer?.pointsBalance || 0;
-
-                    const linkedProduct =
-                      reward.type === 'PRODUCT' && reward.productId
-                        ? products.find((p) => p.id === reward.productId)
-                        : undefined;
-
-                    const masterStockUnavailable =
-                      reward.type === 'PRODUCT' &&
-                      !!reward.productId &&
-                      (linkedProduct?.stockEnabled !== true ||
-                        typeof linkedProduct.stock !== 'number' ||
-                        linkedProduct.stock <= 0);
-
-                    const discountQuotaUnavailable =
-                      reward.type === 'DISCOUNT' &&
-                      reward.stock !== undefined &&
-                      reward.stock <= 0;
-
-                    const rewardUnavailable =
-                      masterStockUnavailable || discountQuotaUnavailable;
-
-                    const canAfford =
-                      !!connectedCustomer &&
-                      customerBalance >= reward.pointsCost;
-
-                    const deficit =
-                      reward.pointsCost - customerBalance;
+                    const customerBalance = connectedCustomer?.pointsBalance || 0;
+                    const canAfford = connectedCustomer && customerBalance >= reward.pointsCost;
+                    const deficit = reward.pointsCost - customerBalance;
 
                     return (
                       <div
@@ -485,37 +483,25 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                                   ? `Voucher potongan harga Rp ${(reward.discountValue || 0).toLocaleString('id-ID')}`
                                   : 'Menu gratis spesial untuk pelanggan setia.')}
                             </p>
-                            {reward.type === 'PRODUCT' &&
-                            reward.productId ? (
-                              linkedProduct?.stockEnabled === true ? (
-                                <span className="text-[10px] text-gray-400 block mt-1">
-                                  Stok menu: {linkedProduct.stock ?? 0} unit
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-amber-600 block mt-1 font-semibold">
-                                  Stok master belum aktif
-                                </span>
-                              )
-                            ) : reward.type === 'DISCOUNT' &&
-                              reward.stock !== undefined ? (
+                            {reward.stock !== undefined && (
                               <span className="text-[10px] text-gray-400 block mt-1">
                                 Sisa kuota: {reward.stock} unit
                               </span>
-                            ) : null}
+                            )}
                           </div>
                         </div>
 
                         {/* Action buttons footer */}
                         <div className="pt-3 mt-3 border-t border-gray-100 flex flex-col gap-1.5">
                           {connectedCustomer ? (
-                            canAfford && !rewardUnavailable ? (
+                            canAfford ? (
                               <button
                                 type="button"
-                                onClick={() => handleRedeemRequest(reward)}
+                                onClick={() => handleInitiateRedeem(reward)}
                                 className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-98 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
                               >
                                 <Zap className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />
-                                <span>📲 Ajukan via WhatsApp</span>
+                                <span>⚡ Redem Instan</span>
                               </button>
                             ) : (
                               <button
@@ -523,13 +509,7 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                                 disabled
                                 className="w-full py-2 px-3 rounded-xl bg-gray-100 text-gray-400 font-bold text-xs flex items-center justify-center gap-1 cursor-not-allowed border border-gray-200"
                               >
-                                <span>
-                                  {rewardUnavailable
-                                    ? reward.type === 'PRODUCT'
-                                      ? 'Stok produk habis'
-                                      : 'Kuota reward habis'
-                                    : `Poin Kurang (${deficit} lagi)`}
-                                </span>
+                                <span>Poin Kurang ({deficit} lagi)</span>
                               </button>
                             )
                           ) : (
@@ -539,7 +519,7 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
                               className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#2E1A47] border border-purple-200 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
                             >
                               <Search className="w-3.5 h-3.5 text-[#E1AD01]" />
-                              <span>Cek Saldo untuk Ajukan Redeem</span>
+                              <span>Cek Saldo untuk Redem</span>
                             </button>
                           )}
 
@@ -624,7 +604,7 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
 
                     <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-semibold truncate">
-                        Poin siap diajukan untuk penukaran melalui WhatsApp!
+                        Poin siap ditukarkan di katalog!
                       </span>
                       <button
                         type="button"
@@ -779,7 +759,7 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
           <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-400">
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Penukaran diproses Admin HUMA untuk menjaga keamanan saldo poin</span>
+              <span>Poin terhubung aman dengan sistem transaksi HUMA</span>
             </span>
             <button
               type="button"
@@ -793,8 +773,98 @@ export const CustomerRewardsModal: React.FC<CustomerRewardsModalProps> = ({
       </Modal>
 
       {/* CONFIRMATION MODAL FOR INSTANT REDEEM */}
+      {selectedRewardToRedeem && connectedCustomer && (
+        <Modal
+          isOpen={true}
+          onClose={() => !isRedeeming && setSelectedRewardToRedeem(null)}
+          title="Konfirmasi Redem Instan"
+          maxWidth="max-w-sm"
+        >
+          <div className="space-y-3.5">
+            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-center space-y-1">
+              <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">
+                Hadiah yang Dipilih:
+              </span>
+              <h4 className="font-heading font-black text-base text-[#2E1A47]">
+                {selectedRewardToRedeem.name}
+              </h4>
+              <p className="text-xs text-gray-500">
+                {selectedRewardToRedeem.type === 'DISCOUNT' ? 'Voucher Potongan Belanja' : 'Menu Spesial Gratis'}
+              </p>
+            </div>
+
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-2">
+              <div className="flex justify-between items-center text-gray-600">
+                <span>Pelanggan:</span>
+                <span className="font-bold text-gray-900">{connectedCustomer.name}</span>
+              </div>
+              <div className="flex justify-between items-center text-gray-600">
+                <span>WhatsApp:</span>
+                <span className="font-bold text-gray-900">{connectedPhone}</span>
+              </div>
+              <div className="border-t border-gray-200 pt-1.5 flex justify-between items-center text-amber-700 font-bold">
+                <span>Poin Ditukarkan:</span>
+                <span className="font-extrabold text-sm">-{selectedRewardToRedeem.pointsCost} Poin</span>
+              </div>
+              <div className="flex justify-between items-center text-gray-700">
+                <span>Sisa Saldo Anda:</span>
+                <span className="font-bold">
+                  {(connectedCustomer.pointsBalance || 0) - selectedRewardToRedeem.pointsCost} Poin
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-gray-500 text-center leading-relaxed">
+              Setelah penukaran berhasil, sistem akan menerbitkan <strong>Struk Resmi</strong> dengan kode klaim yang dapat Anda cetak atau bagikan langsung via WhatsApp.
+            </p>
+
+            {redeemError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{redeemError}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isRedeeming}
+                onClick={() => setSelectedRewardToRedeem(null)}
+                className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isRedeeming}
+                onClick={handleConfirmRedeem}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-60"
+              >
+                {isRedeeming ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memproses...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 fill-amber-200" />
+                    <span>Tukar Sekarang!</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* STRUK PENUKARAN MODAL (PRINT & SHARE RECEIPT) */}
+      <RedeemReceiptModal
+        isOpen={isReceiptModalOpen}
+        onClose={() => setIsReceiptModalOpen(false)}
+        redemption={activeReceipt}
+        customer={connectedCustomer}
+        settings={settings}
+      />
     </>
   );
 };
