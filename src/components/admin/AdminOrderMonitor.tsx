@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Order, OrderStatus, StoreSettings } from '../../types';
 import { FirestoreService } from '../../services/firestoreService';
 import { soundService } from '../../services/audioNotification';
@@ -16,6 +16,51 @@ import {
   AlertTriangle,
   Search,
 } from 'lucide-react';
+
+
+type FirestoreTimestampLike = {
+  seconds?: number;
+  nanoseconds?: number;
+  toMillis?: () => number;
+  toDate?: () => Date;
+};
+
+const getOrderTimestamp = (createdAt: Order['createdAt'] | FirestoreTimestampLike | string | number | null | undefined): number => {
+  if (!createdAt) return 0;
+
+  if (typeof createdAt === 'number' && Number.isFinite(createdAt)) {
+    return createdAt;
+  }
+
+  if (typeof createdAt === 'string') {
+    const parsed = Date.parse(createdAt);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (typeof createdAt === 'object') {
+    const value = createdAt as FirestoreTimestampLike;
+
+    if (typeof value.toMillis === 'function') {
+      const millis = value.toMillis();
+      if (Number.isFinite(millis)) return millis;
+    }
+
+    if (typeof value.toDate === 'function') {
+      const date = value.toDate();
+      const millis = date?.getTime?.();
+      if (Number.isFinite(millis)) return millis;
+    }
+
+    if (typeof value.seconds === 'number' && Number.isFinite(value.seconds)) {
+      const nanos = typeof value.nanoseconds === 'number' && Number.isFinite(value.nanoseconds)
+        ? value.nanoseconds
+        : 0;
+      return value.seconds * 1000 + Math.floor(nanos / 1_000_000);
+    }
+  }
+
+  return 0;
+};
 
 interface AdminOrderMonitorProps {
   orders: Order[];
@@ -75,9 +120,10 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
     },
   ];
 
-  // Always show the newest order first so staff can prepare the latest request immediately.
-  const filteredOrders = orders
-    .filter((o) => {
+  // Always show the newest order first. Use a robust timestamp parser because
+  // Firestore may return createdAt as Timestamp, Date, ISO string, or number.
+  const filteredOrders = useMemo(() => {
+    const filtered = orders.filter((o) => {
       if (selectedStatusTab !== 'ALL' && o.status !== selectedStatusTab) {
         if (selectedStatusTab === 'CANCELLED' && (o.status === 'CANCELLED' || o.status === 'REFUNDED')) {
           // match
@@ -93,12 +139,20 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
         if (!matchNum && !matchCust && !matchPhone) return false;
       }
       return true;
-    })
-    .sort((a, b) => {
-      const aTime = new Date(a.createdAt || 0).getTime();
-      const bTime = new Date(b.createdAt || 0).getTime();
-      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
     });
+
+    return [...filtered].sort((a, b) => {
+      const bTime = getOrderTimestamp(b.createdAt);
+      const aTime = getOrderTimestamp(a.createdAt);
+
+      if (bTime !== aTime) {
+        return bTime - aTime;
+      }
+
+      // Stable fallback when timestamps are identical/missing.
+      return String(b.id || '').localeCompare(String(a.id || ''));
+    });
+  }, [orders, selectedStatusTab, searchQuery]);
 
   const handleAdvanceStatus = async (order: Order) => {
     let nextStatus: OrderStatus = 'CONFIRMED';
@@ -138,9 +192,14 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
           <h2 className="font-heading font-extrabold text-xl text-[#2E1A47]">
             Monitor Pesanan Masuk
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Kelola alur dapur dan status pesanan pelanggan secara real-time
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-0.5">
+            <p className="text-xs text-gray-500">
+              Kelola alur dapur dan status pesanan pelanggan secara real-time
+            </p>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[10px] font-extrabold text-gray-600">
+              Terbaru → Terlama
+            </span>
+          </div>
         </div>
 
         <div className="relative w-full sm:w-64">
@@ -208,8 +267,13 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                 {/* Left: Order Info */}
                 <div className="space-y-2 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono font-extrabold text-sm text-[#2E1A47] bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60">
-                      {order.orderNumber}
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold text-gray-400 min-w-[24px] text-center">
+                        #{filteredOrders.indexOf(order) + 1}
+                      </span>
+                      <span className="font-mono font-extrabold text-sm text-[#2E1A47] bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60">
+                        {order.orderNumber}
+                      </span>
                     </span>
                     <span className="text-xs text-gray-500">
                       {new Date(order.createdAt).toLocaleTimeString('id-ID', {
