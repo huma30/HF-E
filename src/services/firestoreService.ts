@@ -256,6 +256,112 @@ export function sanitizeForFirestore<T>(data: T): T {
   return data;
 }
 
+/**
+ * Build authoritative modifier inventory requirements from order items.
+ *
+ * Legacy modifiers remain unlimited unless their persisted modifier item
+ * explicitly has stockEnabled === true.
+ *
+ * Standard selectedModifiers consume stock per ordered product quantity.
+ * Batch modifier options consume the explicit allocated quantity.
+ */
+function buildModifierInventoryRequirements(
+  items: Order['items'] = []
+): Map<string, number> {
+  const requirements = new Map<string, number>();
+
+  for (const item of items) {
+    const itemQuantity = Number(item.quantity);
+
+    if (!Number.isInteger(itemQuantity) || itemQuantity <= 0) {
+      continue;
+    }
+
+    const batchKeys = new Set<string>();
+
+    for (const batch of item.batchModifiers || []) {
+      const groupId = String(batch.modifierGroupId || '').trim();
+      if (!groupId) continue;
+
+      for (const option of batch.options || []) {
+        const modifierId = String(option.modifierId || '').trim();
+        const quantity = Number(option.quantity);
+
+        if (
+          !modifierId ||
+          !Number.isInteger(quantity) ||
+          quantity <= 0
+        ) {
+          continue;
+        }
+
+        const key = `${groupId}:${modifierId}`;
+        batchKeys.add(key);
+        requirements.set(
+          key,
+          (requirements.get(key) || 0) + quantity
+        );
+      }
+    }
+
+    for (const selected of item.selectedModifiers || []) {
+      const groupId = String(selected.groupId || '').trim();
+      const modifierId = String(selected.item?.id || '').trim();
+
+      if (!groupId || !modifierId) continue;
+
+      // A batch allocation is already the authoritative quantity.
+      if (batchKeys.has(`${groupId}:${modifierId}`)) {
+        continue;
+      }
+
+      const key = `${groupId}:${modifierId}`;
+      requirements.set(
+        key,
+        (requirements.get(key) || 0) + itemQuantity
+      );
+    }
+  }
+
+  return requirements;
+}
+
+function modifierInventoryKey(
+  groupId: string,
+  modifierId: string
+): string {
+  return `modifier:${groupId}:${modifierId}`;
+}
+
+async function buildIdempotencyDocumentId(key: string): Promise<string> {
+  const normalized = String(key || '').trim();
+
+  if (!normalized) {
+    return '';
+  }
+
+  try {
+    if (
+      typeof crypto !== 'undefined' &&
+      crypto.subtle &&
+      typeof TextEncoder !== 'undefined'
+    ) {
+      const encoded = new TextEncoder().encode(normalized);
+      const digest = await crypto.subtle.digest('SHA-256', encoded);
+
+      return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
+    }
+  } catch {
+    // Fallback below for environments without Web Crypto.
+  }
+
+  return normalized
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 1200);
+}
+
 export class FirestoreService {
   /**
    * Synchronously return currently cached catalog (memory/localStorage) for immediate 0ms first-paint
@@ -1162,6 +1268,20 @@ export class FirestoreService {
     const orderId = orderDocRef.id;
     const createdAt = new Date().toISOString();
 
+    const normalizedIdempotencyKey =
+      String(orderInput.idempotencyKey || '').trim();
+
+    const idempotencyRef =
+      normalizedIdempotencyKey
+        ? doc(
+            db,
+            'orderIdempotency',
+            await buildIdempotencyDocumentId(
+              normalizedIdempotencyKey
+            )
+          )
+        : null;
+
     const baseOrder: Order = {
       ...orderInput,
       id: orderId,
@@ -1179,12 +1299,55 @@ export class FirestoreService {
       inventoryTracked: {},
     };
 
-    let newOrder: Order;
+    let transactionResult: { order: Order; created: boolean };
 
     try {
-      newOrder = await runTransaction(
+      transactionResult = await runTransaction(
         db,
         async (txn) => {
+          // ATOMIC IDEMPOTENCY LOCK
+          //
+          // The initial query above is only a fast path.
+          // This transaction lock closes the race window when
+          // two identical requests arrive concurrently.
+
+          if (idempotencyRef) {
+            const lockSnap = await txn.get(idempotencyRef);
+
+            if (lockSnap.exists()) {
+              const lockedOrderId =
+                String(lockSnap.data()?.orderId || '').trim();
+
+              if (!lockedOrderId) {
+                throw new Error(
+                  'Idempotency record pesanan rusak.'
+                );
+              }
+
+              const lockedOrderRef =
+                doc(db, 'orders', lockedOrderId);
+
+              const lockedOrderSnap =
+                await txn.get(lockedOrderRef);
+
+              if (!lockedOrderSnap.exists()) {
+                throw new Error(
+                  'Idempotency record menunjuk pesanan yang tidak ditemukan.'
+                );
+              }
+
+              const existingOrder = {
+                id: lockedOrderSnap.id,
+                ...lockedOrderSnap.data(),
+              } as Order;
+
+              return {
+                order: existingOrder,
+                created: false,
+              };
+            }
+          }
+
           const quantities =
             new Map<string, number>();
 
@@ -1231,6 +1394,53 @@ export class FirestoreService {
             );
 
             productSnapshots.push({
+              ...entry,
+              snap,
+            });
+          }
+
+          const modifierRequirements =
+            buildModifierInventoryRequirements(baseOrder.items);
+
+          const modifierGroupsById =
+            new Map<string, Array<{ modifierId: string; quantity: number }>>();
+
+          for (const [key, quantity] of modifierRequirements.entries()) {
+            const separatorIndex = key.indexOf(':');
+            if (separatorIndex <= 0) continue;
+
+            const groupId = key.slice(0, separatorIndex);
+            const modifierId = key.slice(separatorIndex + 1);
+
+            if (!modifierGroupsById.has(groupId)) {
+              modifierGroupsById.set(groupId, []);
+            }
+
+            modifierGroupsById.get(groupId)!.push({
+              modifierId,
+              quantity,
+            });
+          }
+
+          const modifierGroupEntries = [
+            ...modifierGroupsById.entries(),
+          ].map(([groupId, requirements]) => ({
+            groupId,
+            requirements,
+            ref: doc(
+              db,
+              'modifierGroups',
+              groupId
+            ),
+          }));
+
+          const modifierGroupSnapshots = [];
+
+          // Firestore requires ALL transaction reads before writes.
+          for (const entry of modifierGroupEntries) {
+            const snap = await txn.get(entry.ref);
+
+            modifierGroupSnapshots.push({
               ...entry,
               snap,
             });
@@ -1291,6 +1501,86 @@ export class FirestoreService {
             ] = entry.quantity;
           }
 
+          // Modifier inventory stock is processed in the same
+          // Firestore transaction as product inventory.
+          for (const entry of modifierGroupSnapshots) {
+            if (!entry.snap.exists()) {
+              throw new Error(
+                `Modifier group "${entry.groupId}" tidak ditemukan.`
+              );
+            }
+
+            const groupData = entry.snap.data() as any;
+            const sourceItems = Array.isArray(groupData.items)
+              ? groupData.items
+              : [];
+
+            let updatedItems = [...sourceItems];
+
+            for (const requirement of entry.requirements) {
+              const modifierIndex = updatedItems.findIndex(
+                (modifier: any) =>
+                  String(modifier?.id || '') ===
+                  requirement.modifierId
+              );
+
+              if (modifierIndex < 0) {
+                throw new Error(
+                  `Modifier "${requirement.modifierId}" pada group "${entry.groupId}" tidak ditemukan.`
+                );
+              }
+
+              const modifier = updatedItems[modifierIndex];
+
+              // Legacy modifier inventory remains unchanged.
+              if (modifier.stockEnabled !== true) {
+                continue;
+              }
+
+              const currentStock = Number(modifier.stock);
+
+              if (
+                !Number.isInteger(currentStock) ||
+                currentStock < 0
+              ) {
+                throw new Error(
+                  `Konfigurasi stok modifier "${modifier.name || requirement.modifierId}" tidak valid.`
+                );
+              }
+
+              if (currentStock < requirement.quantity) {
+                throw new Error(
+                  `Stok modifier "${modifier.name || requirement.modifierId}" tidak mencukupi. ` +
+                  `Tersedia ${currentStock} pcs, ` +
+                  `dibutuhkan ${requirement.quantity} pcs.`
+                );
+              }
+
+              updatedItems[modifierIndex] = {
+                ...modifier,
+                stock: currentStock - requirement.quantity,
+                isAvailable:
+                  currentStock - requirement.quantity > 0,
+                status:
+                  currentStock - requirement.quantity > 0
+                    ? 'AVAILABLE'
+                    : 'SOLD_OUT',
+              };
+
+              inventoryTracked[
+                modifierInventoryKey(
+                  entry.groupId,
+                  requirement.modifierId
+                )
+              ] = requirement.quantity;
+            }
+
+            txn.update(entry.ref, {
+              items: updatedItems,
+              updatedAt: createdAt,
+            });
+          }
+
           const finalOrder: Order = {
             ...baseOrder,
             inventoryTracked,
@@ -1303,7 +1593,24 @@ export class FirestoreService {
             )
           );
 
-          return finalOrder;
+          // ATOMIC IDEMPOTENCY RECORD
+          if (idempotencyRef) {
+            txn.set(
+              idempotencyRef,
+              sanitizeForFirestore({
+                idempotencyKey:
+                  normalizedIdempotencyKey,
+                orderId,
+                createdAt,
+                status: 'COMMITTED',
+              })
+            );
+          }
+
+          return {
+            order: finalOrder,
+            created: true,
+          };
         }
       );
     } catch (saveErr) {
@@ -1325,7 +1632,15 @@ export class FirestoreService {
     }
 
     // Firestore transaction succeeded.
+    const newOrder = transactionResult.order;
+
     appendOrUpdateStoredOrder(newOrder);
+
+    // An idempotent replay must NOT increment analytics,
+    // promo usage, or loyalty points a second time.
+    if (!transactionResult.created) {
+      return newOrder;
+    }
 
     // 4. Update Daily Analytics document and Promo usage if permissions allow
     try {
@@ -1509,6 +1824,99 @@ export class FirestoreService {
               };
             }
 
+          // Restore modifier inventory from the exact quantities
+          // recorded during the original sale.
+          const modifierRestorationRequirements =
+            new Map<string, number>();
+
+          for (const [inventoryKey, quantityValue] of Object.entries(
+            currentOrder.inventoryTracked || {}
+          )) {
+            if (!inventoryKey.startsWith('modifier:')) {
+              continue;
+            }
+
+            const parts = inventoryKey.split(':');
+            if (parts.length < 3) {
+              continue;
+            }
+
+            const groupId = parts[1];
+            const modifierId = parts.slice(2).join(':');
+            const quantity = Number(quantityValue);
+
+            if (
+              !groupId ||
+              !modifierId ||
+              !Number.isInteger(quantity) ||
+              quantity <= 0
+            ) {
+              continue;
+            }
+
+            modifierRestorationRequirements.set(
+              `${groupId}:${modifierId}`,
+              (
+                modifierRestorationRequirements.get(
+                  `${groupId}:${modifierId}`
+                ) || 0
+              ) + quantity
+            );
+          }
+
+          const modifierRestorationGroups = new Map<
+            string,
+            Array<{ modifierId: string; quantity: number }>
+          >();
+
+          for (
+            const [key, quantity]
+              of modifierRestorationRequirements.entries()
+          ) {
+            const separator = key.indexOf(':');
+
+            if (separator <= 0) {
+              continue;
+            }
+
+            const groupId = key.slice(0, separator);
+            const modifierId = key.slice(separator + 1);
+
+            if (!modifierRestorationGroups.has(groupId)) {
+              modifierRestorationGroups.set(groupId, []);
+            }
+
+            modifierRestorationGroups.get(groupId)!.push({
+              modifierId,
+              quantity,
+            });
+          }
+
+          const modifierRestorationEntries = [
+            ...modifierRestorationGroups.entries(),
+          ].map(([groupId, requirements]) => ({
+            groupId,
+            requirements,
+            ref: doc(
+              db,
+              'modifierGroups',
+              groupId
+            ),
+          }));
+
+          const modifierRestorationSnapshots = [];
+
+          // IMPORTANT:
+          // Every modifier read happens before any modifier write.
+          for (const entry of modifierRestorationEntries) {
+            const snap = await txn.get(entry.ref);
+
+            modifierRestorationSnapshots.push({
+              ...entry,
+              snap,
+            });
+          }
+
           for (const entry of productSnapshots) {
             if (!entry.snap.exists()) {
               throw new Error(
@@ -1541,6 +1949,63 @@ export class FirestoreService {
                 orderId,
               inventoryOperationType:
                 'CANCEL',
+            });
+          }
+
+          // Restore modifier inventory atomically.
+          for (const entry of modifierRestorationSnapshots) {
+            if (!entry.snap.exists()) {
+              throw new Error(
+                `Modifier group "${entry.groupId}" tidak ditemukan sehingga stok tidak dapat dikembalikan.`
+              );
+            }
+
+            const groupData = entry.snap.data() as any;
+            const sourceItems = Array.isArray(groupData.items)
+              ? groupData.items
+              : [];
+
+            const updatedItems = [...sourceItems];
+
+            for (const requirement of entry.requirements) {
+              const modifierIndex = updatedItems.findIndex(
+                (modifier: any) =>
+                  String(modifier?.id || '') ===
+                  requirement.modifierId
+              );
+
+              if (modifierIndex < 0) {
+                throw new Error(
+                  `Modifier "${requirement.modifierId}" pada group "${entry.groupId}" tidak ditemukan sehingga stok tidak dapat dikembalikan.`
+                );
+              }
+
+              const modifier = updatedItems[modifierIndex];
+              const currentStock = Number(modifier.stock);
+
+              if (
+                !Number.isInteger(currentStock) ||
+                currentStock < 0
+              ) {
+                throw new Error(
+                  `Konfigurasi stok modifier "${modifier.name || requirement.modifierId}" tidak valid saat restore.`
+                );
+              }
+
+              const restoredStock =
+                currentStock + requirement.quantity;
+
+              updatedItems[modifierIndex] = {
+                ...modifier,
+                stock: restoredStock,
+                isAvailable: true,
+                status: 'AVAILABLE',
+              };
+            }
+
+            txn.update(entry.ref, {
+              items: updatedItems,
+              updatedAt,
             });
           }
 

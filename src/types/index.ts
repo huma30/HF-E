@@ -139,6 +139,12 @@ export interface ModifierItem {
   name: string;
   price: number;
   isActive: boolean;
+  /**
+   * Optional modifier-level inventory.
+   * Legacy modifiers remain unlimited when stockEnabled is false/undefined.
+   */
+  stockEnabled?: boolean;
+  stock?: number;
   sortOrder: number;
   isAvailable?: boolean;
   status?: 'AVAILABLE' | 'SOLD_OUT';
@@ -227,6 +233,7 @@ export interface CartItem {
   unitPrice: number; // After wholesale calculation
   quantity: number;
   selectedModifiers: SelectedModifier[];
+  batchModifiers?: BatchModifierSelection[];
   modifiersPrice: number;
   lineTotal: number;
   notes?: string;
