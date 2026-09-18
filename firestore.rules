@@ -236,6 +236,56 @@ service cloud.firestore {
                 resource.data.stock - 1
             )
           )
+        )
+        || (
+          staff()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'redeemCount',
+            'stock',
+            'lastCancelledRedemptionId'
+          ])
+          && resource.data.redeemCount is int
+          && resource.data.redeemCount > 0
+          && request.resource.data.redeemCount is int
+          && request.resource.data.redeemCount ==
+            resource.data.redeemCount - 1
+          && request.resource.data.lastCancelledRedemptionId is string
+          && getAfter(
+            /databases/$(database)/documents/pointRedemptions/$(request.resource.data.lastCancelledRedemptionId)
+          ).data.rewardId == docId
+          && getAfter(
+            /databases/$(database)/documents/pointRedemptions/$(request.resource.data.lastCancelledRedemptionId)
+          ).data.status == 'CANCELLED'
+          && getAfter(
+            /databases/$(database)/documents/pointRedemptions/$(request.resource.data.lastCancelledRedemptionId)
+          ).data.createdBy == 'CUSTOMER_INSTANT'
+          && getAfter(
+            /databases/$(database)/documents/pointRedemptions/$(request.resource.data.lastCancelledRedemptionId)
+          ).data.pointsSpent is int
+          && getAfter(
+            /databases/$(database)/documents/pointRedemptions/$(request.resource.data.lastCancelledRedemptionId)
+          ).data.pointsSpent > 0
+          && (
+            (
+              resource.data.type == 'PRODUCT'
+              && (
+                !resource.data.keys().hasAny(['stock'])
+                ||
+                (
+                  resource.data.stock is int
+                  && request.resource.data.stock ==
+                    resource.data.stock
+                )
+              )
+            )
+            ||
+            (
+              resource.data.type == 'DISCOUNT'
+              && resource.data.stock is int
+              && request.resource.data.stock ==
+                resource.data.stock + 1
+            )
+          )
         );
     }
 
@@ -353,11 +403,11 @@ service cloud.firestore {
     }
 
     match /pointRewards/{rewardId} {
-      allow read, write: if true;
+      allow read, write: if managerOrAbove();
     }
 
     match /pointTransactions/{transactionId} {
-      allow read, write: if true;
+      allow read, write: if managerOrAbove();
     }
 
     // ------------------------------------------------------------

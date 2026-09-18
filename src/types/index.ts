@@ -319,6 +319,9 @@ export interface Order {
   inventoryTracked?: Record<string, number>;
   inventoryRestored?: boolean;
   inventoryRestorationOperationId?: string;
+    orderType?: 'STANDARD' | 'REWARD_REDEMPTION';
+    redemptionId?: string;
+    redemptionCode?: string;
 }
 
 export interface DailyAnalytics {
@@ -383,7 +386,8 @@ export type PointSource =
   | 'REDEEM_DISCOUNT'
   | 'REDEEM_PRODUCT'
   | 'INSTANT_REDEEM'
-  | 'ORDER_CANCELLED';
+  | 'ORDER_CANCELLED'
+  | 'REDEEM_CANCELLED';
 
 export interface PointLedgerEntry {
   id: string;

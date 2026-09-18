@@ -206,12 +206,18 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                     </span>
                     <span
                       className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                        order.source === 'POS'
+                        order.orderType === 'REWARD_REDEMPTION'
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : order.source === 'POS'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200'
                           : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                       }`}
                     >
-                      {order.source === 'POS' ? 'Kasir POS' : 'Web Order'}
+                      {order.orderType === 'REWARD_REDEMPTION'
+                        ? '🎁 Redeem Reward'
+                        : order.source === 'POS'
+                        ? 'Kasir POS'
+                        : 'Web Order'}
                     </span>
                     <span
                       className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${

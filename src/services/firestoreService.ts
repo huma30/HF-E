@@ -1454,6 +1454,61 @@ export class FirestoreService {
           const updatedAt =
             new Date().toISOString();
 
+            let rewardCancellation: any = null;
+
+            if (currentOrder.orderType === 'REWARD_REDEMPTION' && currentOrder.redemptionId) {
+              const redemptionRef = doc(
+                db,
+                'pointRedemptions',
+                currentOrder.redemptionId
+              );
+
+              const redemptionSnap = await txn.get(redemptionRef);
+
+              if (!redemptionSnap.exists()) {
+                throw new Error('Data redemption tidak ditemukan.');
+              }
+
+              const redemption = redemptionSnap.data() || {};
+
+              if (redemption.status !== 'COMPLETED') {
+                throw new Error('Status redemption tidak valid untuk pembatalan.');
+              }
+
+              if (redemption.orderId !== currentOrder.id) {
+                throw new Error('Redemption tidak terhubung ke order RDM ini.');
+              }
+
+              const customerRef = doc(
+                db,
+                'customers',
+                String(redemption.customerId)
+              );
+
+              const rewardRef = doc(
+                db,
+                'rewards',
+                String(redemption.rewardId)
+              );
+
+              const customerSnap = await txn.get(customerRef);
+              const rewardSnap = await txn.get(rewardRef);
+
+              if (!customerSnap.exists() || !rewardSnap.exists()) {
+                throw new Error('Data loyalty redemption tidak lengkap.');
+              }
+
+              rewardCancellation = {
+                redemptionRef,
+                customerRef,
+                rewardRef,
+                redemption,
+                customer: customerSnap.data() || {},
+                reward: rewardSnap.data() || {},
+                reversalLedgerRef: doc(collection(db, 'pointLedger')),
+              };
+            }
+
           for (const entry of productSnapshots) {
             if (!entry.snap.exists()) {
               throw new Error(
@@ -1509,6 +1564,82 @@ export class FirestoreService {
               finalOrder
             ) as any
           );
+
+            if (rewardCancellation) {
+              const redemption = rewardCancellation.redemption;
+              const customer = rewardCancellation.customer;
+              const reward = rewardCancellation.reward;
+
+              const pointsSpent = Number(redemption.pointsSpent || 0);
+              if (pointsSpent <= 0) {
+                throw new Error('Jumlah poin redemption tidak valid.');
+              }
+
+              const currentBalance = Number(customer.pointsBalance || 0);
+              const restoredBalance = currentBalance + pointsSpent;
+
+              txn.update(
+                rewardCancellation.customerRef,
+                {
+                  pointsBalance: restoredBalance,
+                  updatedAt,
+                }
+              );
+
+              const redeemCount = Number(reward.redeemCount || 0);
+              if (redeemCount <= 0) {
+                throw new Error('Counter redemption reward tidak valid.');
+              }
+
+              const rewardUpdates: Record<string, any> = {
+                redeemCount: redeemCount - 1,
+                lastCancelledRedemptionId:
+                  rewardCancellation.redemptionRef.id,
+              };
+
+              if (reward.type !== 'PRODUCT' && reward.stock !== undefined) {
+                rewardUpdates.stock = Number(reward.stock || 0) + 1;
+              }
+
+              txn.update(
+                rewardCancellation.rewardRef,
+                rewardUpdates
+              );
+
+              const reversalEntry: PointLedgerEntry = {
+                id: rewardCancellation.reversalLedgerRef.id,
+                customerId: String(redemption.customerId),
+                customerName: String(redemption.customerName || customer.name || 'Pelanggan HUMA'),
+                type: 'REVERSAL',
+                amount: pointsSpent,
+                balanceBefore: currentBalance,
+                balanceAfter: restoredBalance,
+                source: 'REDEEM_CANCELLED',
+                rewardId: redemption.rewardId,
+                rewardName: redemption.rewardName,
+                orderId: currentOrder.id,
+                note: `Pengembalian ${pointsSpent} poin karena ${currentOrder.orderNumber} dibatalkan.`,
+                createdAt: updatedAt,
+                createdBy: 'SYSTEM',
+              };
+
+              txn.set(
+                rewardCancellation.reversalLedgerRef,
+                sanitizeForFirestore(reversalEntry)
+              );
+
+              txn.update(
+                rewardCancellation.redemptionRef,
+                {
+                  status: 'CANCELLED',
+                  cancelledAt: updatedAt,
+                  cancelledOrderId: currentOrder.id,
+                  cancellationReason:
+                    cancellationReason || 'Dibatalkan oleh staff',
+                  pointsBalanceAfter: restoredBalance,
+                }
+              );
+            }
 
           return {
             changed: true,
@@ -2978,12 +3109,16 @@ export class FirestoreService {
     }
 
     // 3. Generate unique redemption code (e.g. RDM-XXXXXX)
-    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-    const redemptionCode = `RDM-${randomSuffix}`;
-    const redemptionRef = doc(collection(db, 'pointRedemptions'));
-    const customerRef = doc(db, 'customers', customer.id);
-    const ledgerRef = doc(collection(db, 'pointLedger'));
-    const now = new Date().toISOString();
+      // Stable redemption/order identity.
+      const redemptionRef = doc(collection(db, 'pointRedemptions'));
+      const redemptionCode =
+        `RDM-${redemptionRef.id.slice(-8).toUpperCase()}`;
+      const orderRef = doc(collection(db, 'orders'));
+      const orderId = orderRef.id;
+      const orderNumber = `#${redemptionCode}`;
+      const customerRef = doc(db, 'customers', customer.id);
+      const ledgerRef = doc(collection(db, 'pointLedger'));
+      const now = new Date().toISOString();
 
     let redemptionResult: PointRedemption;
     let updatedCustomer: Customer;
@@ -3116,12 +3251,79 @@ export class FirestoreService {
         productName: reward.productName,
         discountAmount: reward.discountValue,
         pointsBalanceAfter: newBalance,
+          orderId,
         inventoryOperationId: redemptionRef.id,
         createdAt: now,
         createdBy: 'CUSTOMER_INSTANT',
         status: 'COMPLETED',
       };
       txn.set(redemptionRef, sanitizeForFirestore(redemptionResult));
+
+        // Store the redemption as a normal pending order.
+        const rewardOrder: Order = {
+          id: orderId,
+          orderNumber,
+          createdAt: now,
+          source: 'WEB',
+          status: 'PENDING',
+          orderType: 'REWARD_REDEMPTION',
+          redemptionId: redemptionRef.id,
+          redemptionCode,
+          customer: {
+            name:
+              custData.name ||
+              customerName ||
+              'Pelanggan HUMA',
+            whatsapp:
+              custData.whatsapp ||
+              cleanDigits,
+            notes:
+              `Redeem reward "${reward.name}" ` +
+              `dengan ${reward.pointsCost} poin. ` +
+              `Kode: ${redemptionCode}`,
+          },
+          serviceType: 'TAKEAWAY',
+          items: [
+            {
+              cartItemId:
+                `reward-${redemptionRef.id}`,
+              productId:
+                reward.productId ||
+                `reward-${reward.id}`,
+              productName:
+                reward.productName ||
+                reward.name,
+              productImage: '',
+              basePrice: 0,
+              unitPrice: 0,
+              quantity: 1,
+              selectedModifiers: [],
+              modifiersPrice: 0,
+              lineTotal: 0,
+              categoryId: 'REWARD',
+            },
+          ],
+          subtotal: 0,
+          discount: 0,
+          deliveryFee: 0,
+          total: 0,
+          paymentMethod: 'CASH',
+          amountPaid: 0,
+          change: 0,
+          idempotencyKey:
+            `reward-redemption-${redemptionRef.id}`,
+          inventoryOperationId: orderId,
+          inventoryTracked:
+            reward.type === 'PRODUCT' &&
+            reward.productId
+              ? { [reward.productId]: 1 }
+              : {},
+        };
+
+        txn.set(
+          orderRef,
+          sanitizeForFirestore(rewardOrder)
+        );
 
       updatedCustomer = {
         ...custData,
