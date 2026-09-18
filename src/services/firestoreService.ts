@@ -870,6 +870,65 @@ export class FirestoreService {
     return docId;
   }
 
+  /**
+   * Atomically update stock management for multiple modifier items in one group.
+   * This avoids overwriting a newer stock value when orders are processed concurrently.
+   */
+  public static async updateModifierStocks(
+    groupId: string,
+    updates: Array<{
+      modifierId: string;
+      stockEnabled: boolean;
+      stock: number;
+      isAvailable: boolean;
+    }>
+  ): Promise<void> {
+    if (!updates.length) return;
+
+    const groupRef = doc(db, 'modifierGroups', groupId);
+
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(groupRef);
+      if (!snap.exists()) {
+        throw new Error('Grup modifier tidak ditemukan.');
+      }
+
+      const data = snap.data() as ModifierGroup;
+      const items = Array.isArray(data.items) ? [...data.items] : [];
+      const updateMap = new Map(updates.map((update) => [update.modifierId, update]));
+
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        const update = updateMap.get(item.id);
+        if (!update) continue;
+
+        const stockEnabled = update.stockEnabled === true;
+        const stock = Math.max(0, Math.floor(Number(update.stock) || 0));
+        const isAvailable = stockEnabled && stock <= 0 ? false : update.isAvailable !== false;
+
+        items[index] = {
+          ...item,
+          stockEnabled,
+          stock,
+          isAvailable,
+          status: (isAvailable ? 'AVAILABLE' : 'SOLD_OUT') as 'AVAILABLE' | 'SOLD_OUT',
+        };
+      }
+
+      transaction.set(
+        groupRef,
+        {
+          items,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    });
+
+    cache.modifierGroups = null;
+    persistCatalog(cache);
+  }
+
   public static async deleteModifierGroup(id: string): Promise<void> {
     await deleteDoc(doc(db, 'modifierGroups', id));
     cache.modifierGroups = null;
