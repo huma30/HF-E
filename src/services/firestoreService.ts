@@ -1745,16 +1745,22 @@ export class FirestoreService {
       );
     }
 
-    await Promise.all(secondaryUpdates);
+    // These are non-critical side effects. Start them after the order transaction
+    // succeeds, but do not make the customer wait for analytics/promo accounting.
+    void Promise.all(secondaryUpdates).catch((err) => {
+      console.warn('[HUMA] Secondary order updates failed:', err);
+    });
 
     // If created as COMPLETED (e.g., instant POS cashier payment), award loyalty points
     if (newOrder.status === 'COMPLETED') {
-      try {
-        const settings = await this.getStoreSettings();
-        await this.earnPointsForOrder(newOrder, settings);
-      } catch (pointErr) {
-        console.warn('[HUMA Loyalty] Error awarding points in createOrder:', pointErr);
-      }
+      void (async () => {
+        try {
+          const settings = await this.getStoreSettings();
+          await this.earnPointsForOrder(newOrder, settings);
+        } catch (pointErr) {
+          console.warn('[HUMA Loyalty] Error awarding points in createOrder:', pointErr);
+        }
+      })();
     }
 
     return newOrder;
