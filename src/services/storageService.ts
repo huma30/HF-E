@@ -1,5 +1,5 @@
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage } from './firebase';
+import { storage } from './firebaseStorage';
 import { optimizeImage, dataUrlToBlob, blobToDataUrl, ImagePresetKey } from '../utils/imageOptimizer';
 
 export class StorageService {
