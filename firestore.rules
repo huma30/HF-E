@@ -328,12 +328,26 @@ service cloud.firestore {
           /databases/$(database)/documents/orders/$(request.resource.data.orderId)
         ).data.inventoryOperationId ==
           request.resource.data.orderId
-        && getAfter(
-          /databases/$(database)/documents/orders/$(request.resource.data.orderId)
-        ).data.source == 'WEB'
-        && getAfter(
-          /databases/$(database)/documents/orders/$(request.resource.data.orderId)
-        ).data.status == 'PENDING';
+        && (
+          (
+            getAfter(
+              /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+            ).data.source == 'WEB'
+            && getAfter(
+              /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+            ).data.status == 'PENDING'
+          )
+          ||
+          (
+            getAfter(
+              /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+            ).data.source == 'POS'
+            && getAfter(
+              /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+            ).data.status == 'COMPLETED'
+            && staff()
+          )
+        );
     }
 
     // ------------------------------------------------------------
