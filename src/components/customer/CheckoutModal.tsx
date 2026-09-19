@@ -1,4 +1,4 @@
-import React, { useState, useId, useMemo } from 'react';
+import React, { useState, useId, useMemo, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { useCart } from '../../context/CartContext';
 import { BatchModifierModal } from './BatchModifierModal';
@@ -84,6 +84,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedAccount, setCopiedAccount] = useState(false);
   const [activeTab, setActiveTab] = useState<'INFO' | 'PAYMENT'>('INFO');
+
+  const paymentOptions = useMemo(() => ({
+    cash: settings?.isCodEnabled !== false,
+    qris: settings?.isQrisEnabled !== false,
+    transfer: settings?.isTransferEnabled !== false,
+  }), [settings?.isCodEnabled, settings?.isQrisEnabled, settings?.isTransferEnabled]);
+
+  useEffect(() => {
+    if (paymentMethod === 'CASH' && !paymentOptions.cash) {
+      setPaymentMethod(paymentOptions.qris ? 'QRIS' : 'BANK_TRANSFER');
+    } else if (paymentMethod === 'QRIS' && !paymentOptions.qris) {
+      setPaymentMethod(paymentOptions.cash ? 'CASH' : 'BANK_TRANSFER');
+    } else if (paymentMethod === 'BANK_TRANSFER' && !paymentOptions.transfer) {
+      setPaymentMethod(paymentOptions.cash ? 'CASH' : 'QRIS');
+    }
+  }, [paymentMethod, paymentOptions.cash, paymentOptions.qris, paymentOptions.transfer]);
 
   // Active category being configured for batch modifiers (e.g. bumbu gorengan)
   const [activeBatchCategory, setActiveBatchCategory] = useState<{
@@ -254,6 +270,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     // Respect the admin order toggle before any payment/order write.
     if (settings?.isOrderingEnabled === false) {
       setErrorMessage('Pesanan sedang ditutup oleh toko. Silakan coba kembali saat pemesanan dibuka.');
+      return;
+    }
+
+
+    if (!paymentOptions.cash && !paymentOptions.qris && !paymentOptions.transfer) {
+      setErrorMessage('Tidak ada metode pembayaran yang sedang diaktifkan oleh toko.');
+      return;
+    }
+
+    if (
+      (paymentMethod === 'CASH' && !paymentOptions.cash) ||
+      (paymentMethod === 'QRIS' && !paymentOptions.qris) ||
+      (paymentMethod === 'BANK_TRANSFER' && !paymentOptions.transfer)
+    ) {
+      setErrorMessage('Metode pembayaran yang dipilih sedang tidak tersedia.');
       return;
     }
 
@@ -776,7 +807,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </h4>
 
             <div className="grid grid-cols-3 gap-2">
-              <button
+              {paymentOptions.cash && <button
                 type="button"
                 onClick={() => setPaymentMethod('CASH')}
                 className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all ${
@@ -787,9 +818,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               >
                 <Banknote className="w-4 h-4 text-emerald-400" />
                 <span>Tunai / COD</span>
-              </button>
+              </button>}
 
-              <button
+              {paymentOptions.qris && <button
                 type="button"
                 onClick={() => setPaymentMethod('QRIS')}
                 className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all ${
@@ -800,9 +831,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               >
                 <QrCode className="w-4 h-4 text-blue-400" />
                 <span>QRIS</span>
-              </button>
+              </button>}
 
-              <button
+              {paymentOptions.transfer && <button
                 type="button"
                 onClick={() => setPaymentMethod('BANK_TRANSFER')}
                 className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all ${
@@ -813,7 +844,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               >
                 <CreditCard className="w-4 h-4 text-purple-400" />
                 <span>Transfer</span>
-              </button>
+              </button>}
             </div>
 
             {/* TUNAI / COD INSTRUCTION */}
