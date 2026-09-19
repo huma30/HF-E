@@ -23,7 +23,18 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 1: Manual closed
+  // Priority 1: Explicit order toggle
+  if (settings.isOrderingEnabled === false) {
+    return {
+      status: 'TEMPORARILY_CLOSED',
+      label: 'Pesanan Ditutup',
+      isOpen: false,
+      colorClass: 'bg-amber-50 text-amber-700 border-amber-200',
+      dotColorClass: 'bg-amber-500',
+    };
+  }
+
+  // Priority 2: Manual closed
   if (settings.manualStatusOverride === 'CLOSED') {
     return {
       status: 'CLOSED',
@@ -44,7 +55,7 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 2: Manual open override
+  // Priority 3: Manual open override
   if (settings.manualStatusOverride === 'OPEN') {
     return {
       status: 'OPEN',
@@ -55,7 +66,7 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 3: Operating hours check
+  // Priority 4: Operating hours check
   if (settings.operatingHours) {
     const now = new Date();
     const day = now.getDay();
@@ -78,7 +89,13 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
 
-    if (currentMinutes >= openMinutes && currentMinutes <= closeMinutes) {
+    // Support schedules crossing midnight, e.g. 22:00–02:00.
+    const isOpen =
+      openMinutes <= closeMinutes
+        ? currentMinutes >= openMinutes && currentMinutes <= closeMinutes
+        : currentMinutes >= openMinutes || currentMinutes <= closeMinutes;
+
+    if (isOpen) {
       return {
         status: 'OPEN',
         label: `Buka • s/d ${settings.operatingHours.close}`,
