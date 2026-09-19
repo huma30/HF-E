@@ -39,7 +39,22 @@ export const StoreInfoFooter: React.FC<StoreInfoFooterProps> = ({
       'Perum Gina Blok B No. 12'
     )}`;
 
-  const activePlatforms = platformLinks.filter((p) => p.isActive && p.url);
+  const configuredPlatforms = platformLinks.filter((p) => p.isActive && p.url);
+
+  const activePlatforms: PlatformLink[] = [...configuredPlatforms];
+  if (settings?.isGoFoodEnabled !== false && settings?.goFoodUrl?.trim()) {
+    const hasGoFood = configuredPlatforms.some(
+      (p) => p.url.trim() === settings.goFoodUrl!.trim() || p.name.toLowerCase().includes('gofood')
+    );
+    if (!hasGoFood) {
+      activePlatforms.push({
+        id: 'settings-gofood',
+        name: settings.goFoodLabel?.trim() || 'GoFood',
+        url: settings.goFoodUrl.trim(),
+        isActive: true,
+      });
+    }
+  }
 
   return (
     <footer className="mt-12 bg-white border-t border-gray-100 pt-10 pb-24 sm:pb-12 text-[#2E1A47]">
