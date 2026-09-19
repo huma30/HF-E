@@ -23,7 +23,29 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 1: Explicit order toggle
+  // Priority 1: Manual overrides must take precedence over the
+  // general order toggle.
+  if (settings.manualStatusOverride === 'FORCE_CLOSED' || settings.manualStatusOverride === 'CLOSED') {
+    return {
+      status: settings.manualStatusOverride === 'FORCE_CLOSED' ? 'FORCE_CLOSED' : 'CLOSED',
+      label: settings.manualStatusOverride === 'FORCE_CLOSED' ? 'Toko Dipaksa Tutup' : 'Toko Tutup',
+      isOpen: false,
+      colorClass: 'bg-rose-50 text-rose-700 border-rose-200',
+      dotColorClass: 'bg-rose-500',
+    };
+  }
+
+  if (settings.manualStatusOverride === 'FORCE_OPEN' || settings.manualStatusOverride === 'OPEN') {
+    return {
+      status: settings.manualStatusOverride === 'FORCE_OPEN' ? 'FORCE_OPEN' : 'OPEN',
+      label: settings.manualStatusOverride === 'FORCE_OPEN' ? 'Buka Paksa' : 'Buka Sekarang',
+      isOpen: true,
+      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      dotColorClass: 'bg-emerald-500',
+    };
+  }
+
+  // Priority 2: Explicit order toggle
   if (settings.isOrderingEnabled === false) {
     return {
       status: 'TEMPORARILY_CLOSED',
@@ -34,7 +56,7 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 2: Manual closed
+  // Priority 3: Manual legacy closed
   if (settings.manualStatusOverride === 'CLOSED') {
     return {
       status: 'CLOSED',
@@ -55,8 +77,7 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 3: Manual open override
-  if (settings.manualStatusOverride === 'OPEN') {
+  // Legacy OPEN/CLOSED values are handled above.
     return {
       status: 'OPEN',
       label: 'Buka Sekarang',
