@@ -332,6 +332,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           />
         )}
         </Suspense>
+      </main>
     </div>
   );
 };
