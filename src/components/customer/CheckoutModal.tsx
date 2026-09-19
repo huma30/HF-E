@@ -308,14 +308,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     // 5. Submit Order
-    let waWin: Window | null = null;
-
     try {
       setIsProcessing(true);
-
-      // Open the new tab synchronously from the user's checkout gesture.
-      // The real WhatsApp URL is assigned only after Firestore confirms the order.
-      waWin = window.open('about:blank', '_blank');
 
       const customerData: Order['customer'] = {
         name: customerName.trim(),
@@ -356,17 +350,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         orderPayload.promoCode = appliedPromo.code;
       }
 
+      // Keep the original HUMA flow:
+      // 1) commit the order safely in Firestore
+      // 2) open the final WhatsApp URL
+      // No intermediate about:blank tab.
       const createdOrder = await FirestoreService.createOrder(orderPayload);
       soundService.playNewOrderChime();
 
-      // Order is now safely committed. Navigate the already-open tab to WhatsApp.
       const cleanStorePhone = (settings?.whatsapp || '085878775527').replace(/^0/, '62').replace(/\D/g, '');
       const waUrl = WhatsAppService.getWhatsAppUrl(createdOrder, cleanStorePhone);
 
       try {
-        if (waWin && !waWin.closed) {
-          waWin.location.href = waUrl;
-        } else {
+        const waWin = window.open(waUrl, '_blank');
+        if (!waWin || waWin.closed || typeof waWin.closed === 'undefined') {
           window.location.href = waUrl;
         }
       } catch {
@@ -377,12 +373,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       onClose();
       onOrderSuccess(createdOrder);
     } catch (err: any) {
-      if (waWin && !waWin.closed) {
-        try {
-          waWin.close();
-        } catch {}
-      }
-
       console.error('Order creation error:', err);
 
       const rawMessage = String(err?.message || '');
