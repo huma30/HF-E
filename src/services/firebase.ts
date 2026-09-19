@@ -1,7 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, getFirestore, doc, getDocFromServer, Firestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -30,8 +29,6 @@ export const db: Firestore = (() => {
   return getFirestore(app, firebaseConfig.firestoreDatabaseId);
 })();
 
-// Initialize Firebase Storage
-export const storage = getStorage(app);
 
 // No production connectivity probe.
 // Firestore operations already report connection failures through their own
