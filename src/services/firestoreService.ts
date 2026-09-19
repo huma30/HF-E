@@ -1823,18 +1823,12 @@ export class FirestoreService {
                 })
               );
 
-          const productSnapshots = [];
-
-          for (const entry of productEntries) {
-            const snap = await txn.get(
-              entry.ref
-            );
-
-            productSnapshots.push({
+          const productSnapshots = await Promise.all(
+            productEntries.map(async (entry) => ({
               ...entry,
-              snap,
-            });
-          }
+              snap: await txn.get(entry.ref),
+            }))
+          );
 
           const updatedAt =
             new Date().toISOString();
@@ -1974,18 +1968,14 @@ export class FirestoreService {
             ),
           }));
 
-          const modifierRestorationSnapshots = [];
-
-          // IMPORTANT:
-          // Every modifier read happens before any modifier write.
-          for (const entry of modifierRestorationEntries) {
-            const snap = await txn.get(entry.ref);
-
-            modifierRestorationSnapshots.push({
+          // Read all modifier groups before writes, while allowing the
+          // network reads to progress in parallel.
+          const modifierRestorationSnapshots = await Promise.all(
+            modifierRestorationEntries.map(async (entry) => ({
               ...entry,
-              snap,
-            });
-          }
+              snap: await txn.get(entry.ref),
+            }))
+          );
 
           for (const entry of productSnapshots) {
             if (!entry.snap.exists()) {
@@ -2342,7 +2332,20 @@ export class FirestoreService {
     }
 
     const colRef = collection(db, 'orders');
-    const q = query(colRef, orderBy('createdAt', 'desc'), limit(50));
+
+    // Staff/POS only needs today's live order queue. Keeping the realtime
+    // result set small reduces initial reads, update traffic, and UI work.
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+
+    const q = query(
+      colRef,
+      where('createdAt', '>=', startOfToday),
+      where('createdAt', '<', startOfTomorrow),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
 
     return onSnapshot(
       q,
