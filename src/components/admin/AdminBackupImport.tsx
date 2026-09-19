@@ -2,7 +2,9 @@ import React, { useState, useRef } from 'react';
 import { Order, Product, StoreSettings, Category } from '../../types';
 import { FirestoreService } from '../../services/firestoreService';
 import { Download, Upload, FileSpreadsheet, Database, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+
+
+const loadXLSX = () => import('xlsx');
 
 interface AdminBackupImportProps {
   products: Product[];
@@ -116,7 +118,8 @@ export const AdminBackupImport: React.FC<AdminBackupImportProps> = ({
     ];
 
     if (format === 'xlsx') {
-      const ws = XLSX.utils.json_to_sheet(templateData);
+      loadXLSX().then(({ utils, writeFile }) => {
+        const ws = utils.json_to_sheet(templateData);
       // Set column widths
       ws['!cols'] = [
         { wch: 25 }, // Nama_Menu
@@ -126,9 +129,10 @@ export const AdminBackupImport: React.FC<AdminBackupImportProps> = ({
         { wch: 55 }, // Foto_URL
         { wch: 10 }, // Tersedia
       ];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Menu Template');
-      XLSX.writeFile(wb, 'template_import_produk_huma.xlsx');
+        const wb = utils.book_new();
+        utils.book_append_sheet(wb, ws, 'Menu Template');
+        writeFile(wb, 'template_import_produk_huma.xlsx');
+      });
     } else {
       const sample = `Nama_Menu,Deskripsi,Harga,Kategori,Foto_URL,Tersedia\n"Seblak Makaroni Baso","Seblak kuah kencur gurih dengan makaroni dan baso sapi",16000,"${categories[0]?.name || 'Seblak Prasmanan'}","https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80",YA\n"Es Teh Manis Jumbo","Es teh manis segar ukuran jumbo 22oz",5000,"${categories[1]?.name || 'Minuman Segar'}","https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=600&auto=format&fit=crop&q=80",YA`;
       const blob = new Blob(['\uFEFF' + sample], { type: 'text/csv;charset=utf-8;' });
@@ -169,14 +173,15 @@ export const AdminBackupImport: React.FC<AdminBackupImportProps> = ({
 
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
+      const { read, utils } = await loadXLSX();
+      const workbook = read(buffer, { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         throw new Error('File tidak memiliki sheet yang dapat dibaca.');
       }
 
       const worksheet = workbook.Sheets[firstSheetName];
-      const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      const rawRows: any[] = utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
       if (!rawRows || rawRows.length <= 1) {
         throw new Error('File kosong atau tidak memiliki baris data produk.');
