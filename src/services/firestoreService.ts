@@ -1434,19 +1434,15 @@ export class FirestoreService {
             ),
           }));
 
-          const productSnapshots = [];
-
-          // Firestore requires transaction reads before writes.
-          for (const entry of productEntries) {
-            const snap = await txn.get(
-              entry.ref
-            );
-
-            productSnapshots.push({
+          // Read all product documents in parallel. Firestore still receives
+          // all reads before any transaction write, preserving atomicity while
+          // reducing sequential network latency for multi-item carts.
+          const productSnapshots = await Promise.all(
+            productEntries.map(async (entry) => ({
               ...entry,
-              snap,
-            });
-          }
+              snap: await txn.get(entry.ref),
+            }))
+          );
 
           const modifierRequirements =
             buildModifierInventoryRequirements(baseOrder.items);
@@ -1483,17 +1479,14 @@ export class FirestoreService {
             ),
           }));
 
-          const modifierGroupSnapshots = [];
-
-          // Firestore requires ALL transaction reads before writes.
-          for (const entry of modifierGroupEntries) {
-            const snap = await txn.get(entry.ref);
-
-            modifierGroupSnapshots.push({
+          // Read modifier groups in parallel as well. These remain transaction
+          // reads and are all completed before any transaction write.
+          const modifierGroupSnapshots = await Promise.all(
+            modifierGroupEntries.map(async (entry) => ({
               ...entry,
-              snap,
-            });
-          }
+              snap: await txn.get(entry.ref),
+            }))
+          );
 
           const inventoryTracked:
             Record<string, number> = {};
