@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   Product,
@@ -10,20 +10,20 @@ import {
   Banner,
   StoreSettings,
 } from '../../types';
-import { AdminDashboard } from './AdminDashboard';
-import { AdminOrderMonitor } from './AdminOrderMonitor';
-import { AdminProductManager } from './AdminProductManager';
-import { AdminCategoryManager } from './AdminCategoryManager';
-import { AdminModifierManager } from './AdminModifierManager';
-import { AdminPromoManager } from './AdminPromoManager';
-import { AdminDeliveryManager } from './AdminDeliveryManager';
-import { AdminBannerManager } from './AdminBannerManager';
-import { AdminSettings } from './AdminSettings';
-import { AdminAuditLogs } from './AdminAuditLogs';
-import { AdminBackupImport } from './AdminBackupImport';
-import { AdminCustomers } from './AdminCustomers';
-import { AdminRewards } from './AdminRewards';
-import { AdminFooterManager } from './AdminFooterManager';
+const AdminDashboard = lazy(() => import('./AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const AdminOrderMonitor = lazy(() => import('./AdminOrderMonitor').then((m) => ({ default: m.AdminOrderMonitor })));
+const AdminProductManager = lazy(() => import('./AdminProductManager').then((m) => ({ default: m.AdminProductManager })));
+const AdminCategoryManager = lazy(() => import('./AdminCategoryManager').then((m) => ({ default: m.AdminCategoryManager })));
+const AdminModifierManager = lazy(() => import('./AdminModifierManager').then((m) => ({ default: m.AdminModifierManager })));
+const AdminPromoManager = lazy(() => import('./AdminPromoManager').then((m) => ({ default: m.AdminPromoManager })));
+const AdminDeliveryManager = lazy(() => import('./AdminDeliveryManager').then((m) => ({ default: m.AdminDeliveryManager })));
+const AdminBannerManager = lazy(() => import('./AdminBannerManager').then((m) => ({ default: m.AdminBannerManager })));
+const AdminSettings = lazy(() => import('./AdminSettings').then((m) => ({ default: m.AdminSettings })));
+const AdminAuditLogs = lazy(() => import('./AdminAuditLogs').then((m) => ({ default: m.AdminAuditLogs })));
+const AdminBackupImport = lazy(() => import('./AdminBackupImport').then((m) => ({ default: m.AdminBackupImport })));
+const AdminCustomers = lazy(() => import('./AdminCustomers').then((m) => ({ default: m.AdminCustomers })));
+const AdminRewards = lazy(() => import('./AdminRewards').then((m) => ({ default: m.AdminRewards })));
+const AdminFooterManager = lazy(() => import('./AdminFooterManager').then((m) => ({ default: m.AdminFooterManager })));
 import {
   LayoutDashboard,
   ClipboardList,
@@ -255,6 +255,15 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-y-auto max-w-6xl w-full mx-auto">
+        <Suspense
+          fallback={
+            <div className="min-h-[240px] flex items-center justify-center">
+              <div className="clay-card px-5 py-4 text-sm font-semibold text-gray-600">
+                Memuat menu admin...
+              </div>
+            </div>
+          }
+        >
         {activeTab === 'DASHBOARD' && (
           <AdminDashboard orders={orders} products={products} />
         )}
@@ -322,7 +331,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             onRefresh={onRefreshData}
           />
         )}
-      </main>
+        </Suspense>
     </div>
   );
 };
