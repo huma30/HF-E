@@ -28,7 +28,11 @@ import { ProductModifierModal } from './components/customer/ProductModifierModal
 import { FloatingCartPill } from './components/customer/FloatingCartPill';
 import { CartDrawer } from './components/customer/CartDrawer';
 import { CheckoutModal } from './components/customer/CheckoutModal';
-import { OrderSuccessModal } from './components/customer/OrderSuccessModal';
+const OrderSuccessModal = lazy(() =>
+  import('./components/customer/OrderSuccessModal').then((m) => ({
+    default: m.OrderSuccessModal,
+  }))
+);
 import { StoreInfoFooter } from './components/customer/StoreInfoFooter';
 
 // Staff & Admin components
@@ -613,15 +617,17 @@ function MainApp() {
       />
 
       {/* Order Success Modal (With WhatsApp CTA) */}
-      <OrderSuccessModal
-        order={justCompletedOrder}
-        settings={settings}
-        isOpen={isOrderSuccessOpen}
-        onClose={() => {
-          setIsOrderSuccessOpen(false);
-          setJustCompletedOrder(null);
-        }}
-      />
+      <Suspense fallback={null}>
+        <OrderSuccessModal
+          order={justCompletedOrder}
+          settings={settings}
+          isOpen={isOrderSuccessOpen}
+          onClose={() => {
+            setIsOrderSuccessOpen(false);
+            setJustCompletedOrder(null);
+          }}
+        />
+      </Suspense>
 
       {/* Admin / Staff Login Modal */}
       <Suspense fallback={null}>
