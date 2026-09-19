@@ -1257,27 +1257,17 @@ export class FirestoreService {
    * Create an order with idempotency check to guarantee anti-double order
    */
   public static async createOrder(orderInput: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Promise<Order> {
-    // 1. Check idempotency if provided
-    if (orderInput.idempotencyKey) {
-      try {
-        const checkQ = query(
-          collection(db, 'orders'),
-          where('idempotencyKey', '==', orderInput.idempotencyKey),
-          limit(1)
-        );
-        const existingSnap = await getDocs(checkQ);
-        if (!existingSnap.empty) {
-          return { id: existingSnap.docs[0].id, ...existingSnap.docs[0].data() } as Order;
-        }
-      } catch (err) {
-        console.warn('[HUMA] Idempotency check skipped:', err);
-      }
-    }
+    // Atomic transaction below is the authoritative idempotency check.
+    // Avoid a preliminary orders query because it adds an extra billed read
+    // and an extra network round-trip on every checkout.
 
     // 1.5. Validate required Batch Modifiers (Bumbu Guard)
     if (orderInput.items && orderInput.items.length > 0) {
       try {
-        const categories = await this.getCategories();
+        // Checkout already loaded catalog data. Reuse the in-memory/local cache
+        // instead of issuing another Firestore read during order submission.
+        const categories =
+          this.getCachedCatalogSync().categories || DEFAULT_CATEGORIES;
         const batchCategories = categories.filter(
           (c) => (c.batchModifierEnabled && c.batchModifierGroupId) || c.name.toLowerCase().includes('goreng')
         );
@@ -1705,39 +1695,57 @@ export class FirestoreService {
       return newOrder;
     }
 
-    // 4. Update Daily Analytics document and Promo usage if permissions allow
-    try {
-      const today = createdAt.substring(0, 10); // YYYY-MM-DD
-      const analyticsDocRef = doc(db, 'analyticsDaily', today);
-      await setDoc(
-        analyticsDocRef,
-        {
-          date: today,
-          orderCount: increment(1),
-          totalRevenue: increment(newOrder.total),
-          posOrders: increment(newOrder.source === 'POS' ? 1 : 0),
-          webOrders: increment(newOrder.source === 'WEB' ? 1 : 0),
-          deliveryFeeTotal: increment(newOrder.deliveryFee || 0),
-          discountsTotal: increment(newOrder.discount || 0),
-        },
-        { merge: true }
+    // 4. Update secondary order side-effects in parallel so analytics and
+    // promo accounting do not add their network latency sequentially.
+    const secondaryUpdates: Promise<void>[] = [];
+
+    secondaryUpdates.push(
+      (async () => {
+        try {
+          const today = createdAt.substring(0, 10); // YYYY-MM-DD
+          const analyticsDocRef = doc(db, 'analyticsDaily', today);
+          await setDoc(
+            analyticsDocRef,
+            {
+              date: today,
+              orderCount: increment(1),
+              totalRevenue: increment(newOrder.total),
+              posOrders: increment(newOrder.source === 'POS' ? 1 : 0),
+              webOrders: increment(newOrder.source === 'WEB' ? 1 : 0),
+              deliveryFeeTotal: increment(newOrder.deliveryFee || 0),
+              discountsTotal: increment(newOrder.discount || 0),
+            },
+            { merge: true }
+          );
+        } catch (analyticsErr) {
+          console.warn('[HUMA] Skipping daily analytics aggregation:', analyticsErr);
+        }
+      })()
+    );
+
+    if (newOrder.promoCode) {
+      secondaryUpdates.push(
+        (async () => {
+          try {
+            const promoQuery = query(
+              collection(db, 'promos'),
+              where('code', '==', newOrder.promoCode),
+              limit(1)
+            );
+            const promoSnap = await getDocs(promoQuery);
+            if (!promoSnap.empty) {
+              await updateDoc(promoSnap.docs[0].ref, {
+                usedCount: increment(1),
+              });
+            }
+          } catch (promoErr) {
+            console.warn('[HUMA] Skipping promo counter update:', promoErr);
+          }
+        })()
       );
-    } catch (analyticsErr) {
-      console.warn('[HUMA] Skipping daily analytics aggregation:', analyticsErr);
     }
 
-    // Increment promo usage if applicable
-    if (newOrder.promoCode) {
-      try {
-        const promoQuery = query(collection(db, 'promos'), where('code', '==', newOrder.promoCode), limit(1));
-        const promoSnap = await getDocs(promoQuery);
-        if (!promoSnap.empty) {
-          await updateDoc(promoSnap.docs[0].ref, { usedCount: increment(1) });
-        }
-      } catch (promoErr) {
-        console.warn('[HUMA] Skipping promo counter update:', promoErr);
-      }
-    }
+    await Promise.all(secondaryUpdates);
 
     // If created as COMPLETED (e.g., instant POS cashier payment), award loyalty points
     if (newOrder.status === 'COMPLETED') {
