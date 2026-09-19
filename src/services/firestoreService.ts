@@ -1623,6 +1623,9 @@ export class FirestoreService {
               txn.update(entry.ref, {
                 items: updatedItems,
                 updatedAt: createdAt,
+                inventoryOperationId: orderId,
+                inventoryOrderId: orderId,
+                inventoryOperationType: 'SALE',
               });
             }
           }
