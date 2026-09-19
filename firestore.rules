@@ -302,6 +302,41 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------
+    // ORDER IDEMPOTENCY
+    //
+    // The customer checkout transaction uses this document as an
+    // atomic duplicate-order lock. The document is readable only
+    // by the checkout transaction and may only be created together
+    // with its matching WEB order.
+    // ------------------------------------------------------------
+
+    match /orderIdempotency/{docId} {
+      allow get: if true;
+
+      allow create: if
+        request.resource.data.keys().hasOnly([
+          'idempotencyKey',
+          'orderId',
+          'createdAt',
+          'status'
+        ])
+        && request.resource.data.idempotencyKey is string
+        && request.resource.data.orderId is string
+        && request.resource.data.createdAt is string
+        && request.resource.data.status == 'COMMITTED'
+        && getAfter(
+          /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+        ).data.inventoryOperationId ==
+          request.resource.data.orderId
+        && getAfter(
+          /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+        ).data.source == 'WEB'
+        && getAfter(
+          /databases/$(database)/documents/orders/$(request.resource.data.orderId)
+        ).data.status == 'PENDING';
+    }
+
+    // ------------------------------------------------------------
     // ORDERS
     //
     // Public customer:
