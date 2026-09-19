@@ -67,7 +67,13 @@ export const HeroBannerSlider: React.FC<HeroBannerSliderProps> = ({ banners = []
 
   return (
     <div
-      onClick={() => onBannerClick?.(currentBanner)}
+      onClick={() => {
+        if (currentBanner.targetUrl?.trim()) {
+          window.open(currentBanner.targetUrl.trim(), '_blank', 'noopener,noreferrer');
+          return;
+        }
+        onBannerClick?.(currentBanner);
+      }}
       className={`relative my-4 overflow-hidden rounded-3xl clay-card shadow-lg group ${
         onBannerClick ? 'cursor-pointer' : ''
       }`}
@@ -97,6 +103,11 @@ export const HeroBannerSlider: React.FC<HeroBannerSliderProps> = ({ banners = []
             <p className="text-xs sm:text-sm text-gray-200 mt-1 max-w-md line-clamp-1">
               {currentBanner.subtitle}
             </p>
+          )}
+          {currentBanner.ctaText && (
+            <span className="mt-3 inline-flex w-max px-3 py-1.5 rounded-xl bg-white/95 text-[#2E1A47] text-xs font-extrabold shadow-sm">
+              {currentBanner.ctaText}
+            </span>
           )}
         </div>
       </div>
