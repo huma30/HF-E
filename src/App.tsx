@@ -24,10 +24,22 @@ import { StoreStatusBadge } from './components/common/StoreStatusBadge';
 import { HeroBannerSlider } from './components/customer/HeroBannerSlider';
 import { CategoryStickyBar } from './components/customer/CategoryStickyBar';
 import { ProductCard } from './components/customer/ProductCard';
-import { ProductModifierModal } from './components/customer/ProductModifierModal';
+const ProductModifierModal = lazy(() =>
+  import('./components/customer/ProductModifierModal').then((m) => ({
+    default: m.ProductModifierModal,
+  }))
+);
 import { FloatingCartPill } from './components/customer/FloatingCartPill';
-import { CartDrawer } from './components/customer/CartDrawer';
-import { CheckoutModal } from './components/customer/CheckoutModal';
+const CartDrawer = lazy(() =>
+  import('./components/customer/CartDrawer').then((m) => ({
+    default: m.CartDrawer,
+  }))
+);
+const CheckoutModal = lazy(() =>
+  import('./components/customer/CheckoutModal').then((m) => ({
+    default: m.CheckoutModal,
+  }))
+);
 const OrderSuccessModal = lazy(() =>
   import('./components/customer/OrderSuccessModal').then((m) => ({
     default: m.OrderSuccessModal,
@@ -568,14 +580,16 @@ function MainApp() {
       />
 
       {/* Product Modifier Dialog */}
-      <ProductModifierModal
-        product={activeModifierProduct}
-        modifierGroups={modifierGroups}
-        categories={categories}
-        isOpen={!!activeModifierProduct}
-        onClose={() => setActiveModifierProduct(null)}
-        onAddToCart={handleAddWithModifiers}
-      />
+      <Suspense fallback={null}>
+        <ProductModifierModal
+          product={activeModifierProduct}
+          modifierGroups={modifierGroups}
+          categories={categories}
+          isOpen={!!activeModifierProduct}
+          onClose={() => setActiveModifierProduct(null)}
+          onAddToCart={handleAddWithModifiers}
+        />
+      </Suspense>
 
       {/* Customer Rewards & Points Modal (Kotak Hadiah) */}
       <Suspense fallback={null}>
@@ -588,33 +602,37 @@ function MainApp() {
       </Suspense>
 
       {/* Slide-over Cart Drawer */}
-      <CartDrawer
-        isOpen={isCartDrawerOpen}
-        onClose={() => setIsCartDrawerOpen(false)}
-        onProceedToCheckout={() => {
-          setIsCartDrawerOpen(false);
-          setIsCheckoutOpen(true);
-        }}
-        allProducts={products}
-        availablePromos={promos}
-        settings={settings}
-        categories={categories}
-        modifierGroups={modifierGroups}
-      />
+      <Suspense fallback={null}>
+        <CartDrawer
+          isOpen={isCartDrawerOpen}
+          onClose={() => setIsCartDrawerOpen(false)}
+          onProceedToCheckout={() => {
+            setIsCartDrawerOpen(false);
+            setIsCheckoutOpen(true);
+          }}
+          allProducts={products}
+          availablePromos={promos}
+          settings={settings}
+          categories={categories}
+          modifierGroups={modifierGroups}
+        />
+      </Suspense>
 
       {/* Checkout Modal */}
-      <CheckoutModal
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-        deliveryAreas={deliveryAreas}
-        settings={settings}
-        categories={categories}
-        modifierGroups={modifierGroups}
-        onOrderSuccess={(order) => {
-          setJustCompletedOrder(order);
-          setIsOrderSuccessOpen(true);
-        }}
-      />
+      <Suspense fallback={null}>
+        <CheckoutModal
+          isOpen={isCheckoutOpen}
+          onClose={() => setIsCheckoutOpen(false)}
+          deliveryAreas={deliveryAreas}
+          settings={settings}
+          categories={categories}
+          modifierGroups={modifierGroups}
+          onOrderSuccess={(order) => {
+            setJustCompletedOrder(order);
+            setIsOrderSuccessOpen(true);
+          }}
+        />
+      </Suspense>
 
       {/* Order Success Modal (With WhatsApp CTA) */}
       <Suspense fallback={null}>
