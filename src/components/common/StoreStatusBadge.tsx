@@ -23,29 +23,46 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 1: Manual overrides must take precedence over the
-  // general order toggle.
-  if (settings.manualStatusOverride === 'FORCE_CLOSED' || settings.manualStatusOverride === 'CLOSED') {
+  // Manual override always has priority over the general order toggle.
+  if (
+    settings.manualStatusOverride === 'FORCE_CLOSED' ||
+    settings.manualStatusOverride === 'CLOSED'
+  ) {
     return {
-      status: settings.manualStatusOverride === 'FORCE_CLOSED' ? 'FORCE_CLOSED' : 'CLOSED',
-      label: settings.manualStatusOverride === 'FORCE_CLOSED' ? 'Toko Dipaksa Tutup' : 'Toko Tutup',
+      status:
+        settings.manualStatusOverride === 'FORCE_CLOSED'
+          ? 'FORCE_CLOSED'
+          : 'CLOSED',
+      label:
+        settings.manualStatusOverride === 'FORCE_CLOSED'
+          ? 'Toko Dipaksa Tutup'
+          : 'Toko Tutup',
       isOpen: false,
       colorClass: 'bg-rose-50 text-rose-700 border-rose-200',
       dotColorClass: 'bg-rose-500',
     };
   }
 
-  if (settings.manualStatusOverride === 'FORCE_OPEN' || settings.manualStatusOverride === 'OPEN') {
+  if (
+    settings.manualStatusOverride === 'FORCE_OPEN' ||
+    settings.manualStatusOverride === 'OPEN'
+  ) {
     return {
-      status: settings.manualStatusOverride === 'FORCE_OPEN' ? 'FORCE_OPEN' : 'OPEN',
-      label: settings.manualStatusOverride === 'FORCE_OPEN' ? 'Buka Paksa' : 'Buka Sekarang',
+      status:
+        settings.manualStatusOverride === 'FORCE_OPEN'
+          ? 'FORCE_OPEN'
+          : 'OPEN',
+      label:
+        settings.manualStatusOverride === 'FORCE_OPEN'
+          ? 'Buka Paksa'
+          : 'Buka Sekarang',
       isOpen: true,
       colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       dotColorClass: 'bg-emerald-500',
     };
   }
 
-  // Priority 2: Explicit order toggle
+  // Explicitly disabled customer ordering.
   if (settings.isOrderingEnabled === false) {
     return {
       status: 'TEMPORARILY_CLOSED',
@@ -56,17 +73,7 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Priority 3: Manual legacy closed
-  if (settings.manualStatusOverride === 'CLOSED') {
-    return {
-      status: 'CLOSED',
-      label: 'Toko Tutup',
-      isOpen: false,
-      colorClass: 'bg-rose-50 text-rose-700 border-rose-200',
-      dotColorClass: 'bg-rose-500',
-    };
-  }
-
+  // Temporary closed state from legacy settings.
   if (settings.manualStatusOverride === 'TEMPORARILY_CLOSED') {
     return {
       status: 'TEMPORARILY_CLOSED',
@@ -77,21 +84,11 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     };
   }
 
-  // Legacy OPEN/CLOSED values are handled above.
-    return {
-      status: 'OPEN',
-      label: 'Buka Sekarang',
-      isOpen: true,
-      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      dotColorClass: 'bg-emerald-500',
-    };
-  }
-
-  // Priority 4: Operating hours check
   if (settings.operatingHours) {
     const now = new Date();
     const day = now.getDay();
-    const allowedDays = settings.operatingHours.days || [0, 1, 2, 3, 4, 5, 6];
+    const allowedDays =
+      settings.operatingHours.days || [0, 1, 2, 3, 4, 5, 6];
 
     if (!allowedDays.includes(day)) {
       return {
@@ -104,13 +101,17 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
     }
 
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const [openH, openM] = (settings.operatingHours.open || '10:00').split(':').map(Number);
-    const [closeH, closeM] = (settings.operatingHours.close || '22:00').split(':').map(Number);
+    const [openH, openM] = (
+      settings.operatingHours.open || '10:00'
+    ).split(':').map(Number);
+    const [closeH, closeM] = (
+      settings.operatingHours.close || '22:00'
+    ).split(':').map(Number);
 
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
 
-    // Support schedules crossing midnight, e.g. 22:00–02:00.
+    // Supports normal schedules (10:00–22:00) and overnight schedules (22:00–02:00).
     const isOpen =
       openMinutes <= closeMinutes
         ? currentMinutes >= openMinutes && currentMinutes <= closeMinutes
@@ -124,15 +125,15 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
         colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         dotColorClass: 'bg-emerald-500',
       };
-    } else {
-      return {
-        status: 'CLOSED',
-        label: `Tutup • Buka ${settings.operatingHours.open}`,
-        isOpen: false,
-        colorClass: 'bg-rose-50 text-rose-700 border-rose-200',
-        dotColorClass: 'bg-rose-500',
-      };
     }
+
+    return {
+      status: 'CLOSED',
+      label: `Tutup • Buka ${settings.operatingHours.open}`,
+      isOpen: false,
+      colorClass: 'bg-rose-50 text-rose-700 border-rose-200',
+      dotColorClass: 'bg-rose-500',
+    };
   }
 
   return {
@@ -144,20 +145,31 @@ export const getStoreCurrentStatus = (settings: StoreSettings | null): {
   };
 };
 
-export const StoreStatusBadge: React.FC<StoreStatusBadgeProps> = ({ settings, className = '' }) => {
+export const StoreStatusBadge: React.FC<StoreStatusBadgeProps> = ({
+  settings,
+  className = '',
+}) => {
   const current = getStoreCurrentStatus(settings);
 
   return (
     <div
       id="store-status-badge"
       className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-xs ${current.colorClass} ${className}`}
-      title={settings?.operatingHours ? `Jam Operasional: ${settings.operatingHours.open} - ${settings.operatingHours.close}` : ''}
+      title={
+        settings?.operatingHours
+          ? `Jam Operasional: ${settings.operatingHours.open} - ${settings.operatingHours.close}`
+          : ''
+      }
     >
       <span className="relative flex h-2 w-2">
         {current.isOpen && (
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${current.dotColorClass} opacity-75`} />
+          <span
+            className={`animate-ping absolute inline-flex h-full w-full rounded-full ${current.dotColorClass} opacity-75`}
+          />
         )}
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${current.dotColorClass}`} />
+        <span
+          className={`relative inline-flex rounded-full h-2 w-2 ${current.dotColorClass}`}
+        />
       </span>
       <span className="whitespace-nowrap">{current.label}</span>
     </div>
