@@ -1575,6 +1575,7 @@ export class FirestoreService {
               : [];
 
             let updatedItems = [...sourceItems];
+            let modifierStockChanged = false;
 
             for (const requirement of entry.requirements) {
               const modifierIndex = updatedItems.findIndex(
@@ -1632,12 +1633,15 @@ export class FirestoreService {
                   requirement.modifierId
                 )
               ] = requirement.quantity;
+              modifierStockChanged = true;
             }
 
-            txn.update(entry.ref, {
-              items: updatedItems,
-              updatedAt: createdAt,
-            });
+            if (modifierStockChanged) {
+              txn.update(entry.ref, {
+                items: updatedItems,
+                updatedAt: createdAt,
+              });
+            }
           }
 
           const finalOrder: Order = {
