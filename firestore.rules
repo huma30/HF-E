@@ -182,32 +182,63 @@ service cloud.firestore {
 
     match /modifierGroups/{docId} {
       allow read: if true;
-
-      // Catalog/modifier configuration is manager+ only.
       allow create, delete: if managerOrAbove();
 
-      // Inventory-only modifier updates may also be performed by staff as
-      // part of an atomic order sale/cancellation/reward operation.
       allow update: if managerOrAbove()
         || (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'items',
-            'updatedAt'
+            'updatedAt',
+            'inventoryOperationId',
+            'inventoryOrderId',
+            'inventoryOperationType'
           ])
+          && request.resource.data.inventoryOperationId is string
+          && request.resource.data.inventoryOrderId is string
+          && request.resource.data.inventoryOperationType in ['SALE', 'CANCEL']
           && (
-            // Transactional POS sale: the matching completed order must carry
-            // the inventory operation metadata for this modifier group.
             (
-              staff()
-              && request.resource.data.items is list
-              && request.resource.data.updatedAt is string
+              request.resource.data.inventoryOperationType == 'SALE'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.inventoryOperationId ==
+                request.resource.data.inventoryOrderId
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.source == 'WEB'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.status == 'PENDING'
             )
             ||
-            // Public WEB pending checkout: keep the existing modifier-stock
-            // feature working without granting general catalog writes.
             (
-              request.resource.data.items is list
-              && request.resource.data.updatedAt is string
+              request.resource.data.inventoryOperationType == 'SALE'
+              && staff()
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.inventoryOperationId ==
+                request.resource.data.inventoryOrderId
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.source == 'POS'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.status == 'COMPLETED'
+            )
+            ||
+            (
+              request.resource.data.inventoryOperationType == 'CANCEL'
+              && staff()
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.status == 'CANCELLED'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.inventoryRestored == true
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.inventoryRestorationOperationId ==
+                request.resource.data.inventoryOperationId
             )
           )
         );
