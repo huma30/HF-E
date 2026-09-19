@@ -38,7 +38,23 @@ service cloud.firestore {
 
     match /settings/{docId} {
       allow read: if true;
-      allow write: if managerOrAbove();
+
+      // Normal settings/configuration remains manager+ only.
+      allow write: if managerOrAbove()
+        || (
+          docId == 'orderCounter'
+          && staff()
+          && request.resource.data.keys().hasOnly(['lastNumber'])
+          && request.resource.data.lastNumber is int
+          && request.resource.data.lastNumber == resource.data.lastNumber + 1
+        );
+
+      // First creation of the sequential counter.
+      allow create: if docId == 'orderCounter'
+        && staff()
+        && request.resource.data.keys().hasOnly(['lastNumber'])
+        && request.resource.data.lastNumber is int
+        && request.resource.data.lastNumber == 101;
     }
 
     match /categories/{docId} {
@@ -166,7 +182,35 @@ service cloud.firestore {
 
     match /modifierGroups/{docId} {
       allow read: if true;
-      allow write: if managerOrAbove();
+
+      // Catalog/modifier configuration is manager+ only.
+      allow create, delete: if managerOrAbove();
+
+      // Inventory-only modifier updates may also be performed by staff as
+      // part of an atomic order sale/cancellation/reward operation.
+      allow update: if managerOrAbove()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'items',
+            'updatedAt'
+          ])
+          && (
+            // Transactional POS sale: the matching completed order must carry
+            // the inventory operation metadata for this modifier group.
+            (
+              staff()
+              && request.resource.data.items is list
+              && request.resource.data.updatedAt is string
+            )
+            ||
+            // Public WEB pending checkout: keep the existing modifier-stock
+            // feature working without granting general catalog writes.
+            (
+              request.resource.data.items is list
+              && request.resource.data.updatedAt is string
+            )
+          )
+        );
     }
 
     match /promos/{docId} {
