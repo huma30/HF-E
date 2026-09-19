@@ -14,9 +14,15 @@ export const auth = getAuth(app);
 export const db: Firestore = (() => {
   if (typeof window !== 'undefined') {
     try {
-      return initializeFirestore(app, {
-        experimentalForceLongPolling: true,
-      }, firebaseConfig.firestoreDatabaseId);
+      return initializeFirestore(
+        app,
+        {
+          // Let the SDK use the fastest compatible transport and only
+          // fall back to long-polling when the network requires it.
+          experimentalAutoDetectLongPolling: true,
+        },
+        firebaseConfig.firestoreDatabaseId
+      );
     } catch {
       return getFirestore(app, firebaseConfig.firestoreDatabaseId);
     }
@@ -27,24 +33,9 @@ export const db: Firestore = (() => {
 // Initialize Firebase Storage
 export const storage = getStorage(app);
 
-// Connectivity verification (per Firebase Integration Skill)
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
-  }
-}
-
-if (typeof window !== 'undefined') {
-  // Run verification slightly deferred to allow socket/network handshake to complete
-  setTimeout(() => {
-    testConnection().catch(() => {});
-  }, 1500);
-} else {
-  testConnection().catch(() => {});
-}
+// No production connectivity probe.
+// Firestore operations already report connection failures through their own
+// promises/listeners, so an extra test/connection read would only add startup
+// latency and consume a Firestore read on every page load.
 
 export default app;
