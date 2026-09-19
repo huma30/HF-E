@@ -2069,6 +2069,9 @@ export class FirestoreService {
             txn.update(entry.ref, {
               items: updatedItems,
               updatedAt,
+              inventoryOperationId: `cancel_${orderId}`,
+              inventoryOrderId: orderId,
+              inventoryOperationType: 'CANCEL',
             });
           }
 
