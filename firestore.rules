@@ -184,7 +184,39 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if managerOrAbove();
 
+      // Inventory changes are only accepted as part of an order transaction.
+      // The application writes operation metadata together with the stock change.
       allow update: if managerOrAbove()
+        || (
+          staff()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'items',
+            'updatedAt',
+            'inventoryOperationId',
+            'inventoryOrderId',
+            'inventoryOperationType'
+          ])
+          && request.resource.data.inventoryOperationId is string
+          && request.resource.data.inventoryOrderId is string
+          && request.resource.data.inventoryOperationType in ['SALE', 'CANCEL']
+          && getAfter(
+            /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+          ).data.source == 'POS'
+          && (
+            (request.resource.data.inventoryOperationType == 'SALE'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.status == 'COMPLETED')
+            ||
+            (request.resource.data.inventoryOperationType == 'CANCEL'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.status == 'CANCELLED'
+              && getAfter(
+                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+              ).data.inventoryRestored == true)
+          )
+        )
         || (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'items',
@@ -195,52 +227,13 @@ service cloud.firestore {
           ])
           && request.resource.data.inventoryOperationId is string
           && request.resource.data.inventoryOrderId is string
-          && request.resource.data.inventoryOperationType in ['SALE', 'CANCEL']
-          && (
-            (
-              request.resource.data.inventoryOperationType == 'SALE'
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.inventoryOperationId ==
-                request.resource.data.inventoryOrderId
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.source == 'WEB'
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.status == 'PENDING'
-            )
-            ||
-            (
-              request.resource.data.inventoryOperationType == 'SALE'
-              && staff()
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.inventoryOperationId ==
-                request.resource.data.inventoryOrderId
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.source == 'POS'
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.status == 'COMPLETED'
-            )
-            ||
-            (
-              request.resource.data.inventoryOperationType == 'CANCEL'
-              && staff()
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.status == 'CANCELLED'
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.inventoryRestored == true
-              && getAfter(
-                /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
-              ).data.inventoryRestorationOperationId ==
-                request.resource.data.inventoryOperationId
-            )
-          )
+          && request.resource.data.inventoryOperationType == 'SALE'
+          && getAfter(
+            /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+          ).data.source == 'WEB'
+          && getAfter(
+            /databases/$(database)/documents/orders/$(request.resource.data.inventoryOrderId)
+          ).data.status == 'PENDING'
         );
     }
 
