@@ -384,9 +384,27 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       }
 
       console.error('Order creation error:', err);
-      setErrorMessage(
-        err?.message || 'Gagal memproses pesanan. Silakan coba sesaat lagi.'
-      );
+
+      const rawMessage = String(err?.message || '');
+      const errorCode = String(err?.code || '');
+
+      if (
+        errorCode === 'permission-denied' ||
+        /missing or insufficient permissions/i.test(rawMessage) ||
+        /permission-denied/i.test(rawMessage)
+      ) {
+        setErrorMessage(
+          'Pesanan belum dapat disimpan ke sistem. Silakan coba lagi. Jika masalah tetap terjadi, tunggu beberapa detik lalu ulangi.'
+        );
+      } else if (/network|offline|unavailable/i.test(rawMessage)) {
+        setErrorMessage(
+          'Koneksi sedang bermasalah. Periksa internet Anda lalu coba lagi.'
+        );
+      } else {
+        setErrorMessage(
+          rawMessage || 'Gagal memproses pesanan. Silakan coba sesaat lagi.'
+        );
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -984,32 +1002,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             )}
           </div>
-
-          {/* Promo & Mix Match Breakdown */}
-          {(mixMatchDiscount > 0 || (appliedPromo && discount > 0)) && (
-            <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs space-y-1">
-              <p className="font-extrabold text-emerald-900 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Promo Hemat Diterapkan:</span>
-              </p>
-              {mixMatchBundles.map((b, idx) => (
-                <div key={idx} className="flex items-center justify-between text-emerald-800 text-[11px]">
-                  <span>
-                    Mix & Match ({b.promoName} × {b.bundleCount}):
-                  </span>
-                  <span className="font-bold">-Rp {b.discount.toLocaleString('id-ID')}</span>
-                </div>
-              ))}
-              {appliedPromo && discount - mixMatchDiscount > 0 && (
-                <div className="flex items-center justify-between text-emerald-800 text-[11px]">
-                  <span>Voucher ({appliedPromo.code}):</span>
-                  <span className="font-bold">
-                    -Rp {(discount - mixMatchDiscount).toLocaleString('id-ID')}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Ringkasan Total Tagihan */}
           <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 space-y-1.5 text-xs">
