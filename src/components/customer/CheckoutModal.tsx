@@ -251,6 +251,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     setErrorMessage(null);
 
+    // Respect the admin order toggle before any payment/order write.
+    if (settings?.isOrderingEnabled === false) {
+      setErrorMessage('Pesanan sedang ditutup oleh toko. Silakan coba kembali saat pemesanan dibuka.');
+      return;
+    }
+
     // 0. Strict validation: Never allow order submission without required bumbu
     if (hasIncompleteBatchModifiers) {
       setErrorMessage('Pesanan Aneka Gorengan wajib memilih bumbu sebelum menyelesaikan pembayaran.');
