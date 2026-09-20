@@ -97,6 +97,15 @@ export interface Banner {
   sortOrder: number;
 }
 
+
+export type ModifierScope = 'group' | 'item';
+
+export interface OrderingConfig {
+  groupingEnabled: boolean;
+  modifierEnabled: boolean;
+  modifierScope: ModifierScope;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -203,7 +212,36 @@ export interface CartItem {
   lineTotal: number;
   notes?: string;
   categoryId?: string;
+  /**
+   * Canonical relationship to an OrderGroup during the migration to grouped ordering.
+   * Kept optional so existing flat cart items remain fully backward-compatible.
+   */
+  orderGroupId?: string;
+  /**
+   * Legacy Batch Modifier payload. New grouped orders should store group-level
+   * modifiers under OrderGroup.modifiers instead.
+   */
   batchModifiers?: BatchModifierSelection[];
+}
+
+export interface OrderGroupModifier {
+  modifierId: string;
+  name: string;
+  groupId: string;
+  groupName: string;
+  price: number;
+  quantity: number;
+}
+
+export interface OrderGroup {
+  id: string;
+  categoryId: string;
+  items: CartItem[];
+  modifiers: OrderGroupModifier[];
+  subtotal: number;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DeliveryArea {
@@ -272,6 +310,15 @@ export interface Order {
   serviceType: ServiceType;
   deliveryAreaId?: string;
   deliveryAreaName?: string;
+  /**
+   * Canonical grouped-order representation for new orders.
+   * Optional because historical orders may only contain the legacy flat items[] shape.
+   */
+  groups?: OrderGroup[];
+  /**
+   * Legacy flat item list retained for backward compatibility and existing reports.
+   * New order creation should keep this synchronized with groups[].
+   */
   items: CartItem[];
   subtotal: number;
   discount: number;
