@@ -27,6 +27,7 @@ import { ProductCard } from './components/customer/ProductCard';
 import { ProductModifierModal } from './components/customer/ProductModifierModal';
 import { FloatingCartPill } from './components/customer/FloatingCartPill';
 import { CartDrawer } from './components/customer/CartDrawer';
+import { OrderGroupModal } from './components/customer/OrderGroupModal';
 import { CheckoutModal } from './components/customer/CheckoutModal';
 import { OrderSuccessModal } from './components/customer/OrderSuccessModal';
 import { StoreInfoFooter } from './components/customer/StoreInfoFooter';
@@ -43,6 +44,7 @@ import { useGestureBack } from './hooks/useGestureBack';
 import { GestureBackIndicator } from './components/common/GestureBackIndicator';
 
 import { Search, Sparkles, UtensilsCrossed, Layers, Flame, ArrowUpDown } from 'lucide-react';
+import { OrderEngine } from './services/orderEngine';
 
 type ViewMode = 'STOREFRONT' | 'POS' | 'ADMIN' | 'ADMIN_LOGIN';
 
@@ -50,7 +52,7 @@ function MainApp() {
   const { currentUser, role, adminProfile } = useAuth();
   const isAuthenticated = !!currentUser || !!adminProfile;
   const user = adminProfile;
-  const { addItem, setAvailablePromos } = useCart();
+  const { addItem, addOrderGroup, setAvailablePromos } = useCart();
 
   // Primary view mode
   const [viewMode, setViewMode] = useState<ViewMode>('STOREFRONT');
@@ -72,6 +74,7 @@ function MainApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [activeModifierProduct, setActiveModifierProduct] = useState<Product | null>(null);
+  const [activeOrderGroupCategory, setActiveOrderGroupCategory] = useState<Category | null>(null);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrderSuccessOpen, setIsOrderSuccessOpen] = useState(false);
@@ -493,6 +496,32 @@ function MainApp() {
           onSelectCategory={setSelectedCategoryId}
         />
 
+        {/* Group Ordering Entry Point */}
+        {selectedCategoryId && (() => {
+          const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+          const groupingEnabled = OrderEngine.getOrderingConfig(selectedCategory).groupingEnabled;
+          if (!selectedCategory || !groupingEnabled) return null;
+          return (
+            <div className="mb-3 p-3 rounded-2xl bg-purple-50 border border-purple-100 flex flex-col sm:flex-row items-center justify-between gap-2">
+              <div>
+                <div className="font-heading font-extrabold text-sm text-[#2E1A47]">
+                  Pesan beberapa menu sekaligus
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Pilih item dan jumlahnya, lalu tentukan bumbu untuk satu grup.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveOrderGroupCategory(selectedCategory)}
+                className="clay-button-primary px-4 py-2 text-xs font-extrabold shrink-0"
+              >
+                Buat Order Group
+              </button>
+            </div>
+          );
+        })()}
+
         {/* Product Catalog Grid */}
         <div className="mt-4">
           {isLoading ? (
@@ -546,6 +575,15 @@ function MainApp() {
         isOpen={!!activeModifierProduct}
         onClose={() => setActiveModifierProduct(null)}
         onAddToCart={handleAddWithModifiers}
+      />
+
+      <OrderGroupModal
+        isOpen={!!activeOrderGroupCategory}
+        category={activeOrderGroupCategory}
+        products={products}
+        modifierGroups={modifierGroups}
+        onClose={() => setActiveOrderGroupCategory(null)}
+        onSave={addOrderGroup}
       />
 
       {/* Customer Rewards & Points Modal (Kotak Hadiah) */}
