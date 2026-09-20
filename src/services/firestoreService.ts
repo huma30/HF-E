@@ -621,12 +621,26 @@ export class FirestoreService {
     const orderId = orderDocRef.id;
     const createdAt = new Date().toISOString();
 
+    const canonicalGroups = orderInput.groups && orderInput.groups.length > 0
+      ? orderInput.groups.map((group) => OrderEngine.updateGroup(group, {
+          categoryId: group.categoryId,
+          items: group.items,
+          modifiers: group.modifiers,
+          note: group.note,
+        }))
+      : undefined;
+
     const newOrder: Order = {
       ...orderInput,
       id: orderId,
       orderNumber,
       createdAt,
       status: orderInput.status || 'PENDING',
+      groups: canonicalGroups,
+      // Keep flat items for existing reports/receipts/history consumers.
+      items: canonicalGroups && canonicalGroups.length > 0
+        ? OrderEngine.flattenGroups(canonicalGroups)
+        : orderInput.items,
     };
 
     // 3. Save order document directly to Firestore (Allowed for both public customers and staff)
