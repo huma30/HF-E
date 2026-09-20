@@ -668,6 +668,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         products={products}
         modifierGroups={modifierGroups}
         promos={promos}
+        orderGroups={orderGroups}
         existingGroup={editingOrderGroup}
         onClose={() => { setActiveOrderGroupCategory(null); setEditingOrderGroup(null); }}
         onSave={(group) => {
