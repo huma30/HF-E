@@ -12,6 +12,8 @@ export interface MixMatchBundleDetail {
 export interface MixMatchResult {
   discount: number;
   appliedBundles: MixMatchBundleDetail[];
+  /** Discount allocated to canonical Order Groups by group id. */
+  groupDiscounts?: Record<string, number>;
 }
 
 export class PricingEngine {
@@ -94,6 +96,7 @@ export class PricingEngine {
       productId: string;
       categoryId?: string;
       unitPrice: number;
+      orderGroupId?: string;
       isUsed: boolean;
     }
 
@@ -105,6 +108,7 @@ export class PricingEngine {
           productId: item.productId,
           categoryId: item.categoryId,
           unitPrice: item.unitPrice,
+          orderGroupId: item.orderGroupId,
           isUsed: false,
         });
       }
@@ -112,6 +116,7 @@ export class PricingEngine {
 
     let totalDiscount = 0;
     const appliedBundles: MixMatchBundleDetail[] = [];
+    const groupDiscounts: Record<string, number> = {};
 
     for (const promo of activeMixPromos) {
       const minQty = Math.max(1, promo.mixMatchMinQty ?? promo.mixMatchQuantity ?? 2);
@@ -186,6 +191,28 @@ export class PricingEngine {
 
       if (promoDiscount > 0) {
         totalDiscount += promoDiscount;
+
+        // Keep grouped ordering synchronized with the same promo calculation.
+        // Discount is allocated proportionally to each canonical Order Group.
+        const groupedUnits = selectedUnits.filter((u) => !!u.orderGroupId);
+        if (groupedUnits.length > 0 && normalPriceSum > 0) {
+          const groupedNormalTotals: Record<string, number> = {};
+          groupedUnits.forEach((u) => {
+            const groupId = u.orderGroupId!;
+            groupedNormalTotals[groupId] = (groupedNormalTotals[groupId] || 0) + u.unitPrice;
+          });
+
+          const entries = Object.entries(groupedNormalTotals);
+          let allocated = 0;
+          entries.forEach(([groupId, groupNormal], index) => {
+            const groupDiscount =
+              index === entries.length - 1
+                ? Math.max(0, promoDiscount - allocated)
+                : Math.round((promoDiscount * groupNormal) / normalPriceSum);
+            allocated += groupDiscount;
+            groupDiscounts[groupId] = (groupDiscounts[groupId] || 0) + groupDiscount;
+          });
+        }
         // Mark these units as used so they are not double-discounted by subsequent promos
         selectedUnits.forEach((u) => (u.isUsed = true));
 
@@ -203,6 +230,7 @@ export class PricingEngine {
     return {
       discount: totalDiscount,
       appliedBundles,
+      groupDiscounts,
     };
   }
 
