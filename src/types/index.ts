@@ -307,6 +307,10 @@ export interface Promo {
   mixMatchDiscountValue?: number;
   mixMatchPromoPrice?: number;
   mixMatchPriceType?: 'PER_ITEM' | 'PACKAGE';
+  /** Complete bundles only vs legacy all-eligible behavior. */
+  mixMatchRule?: 'FULL_MULTIPLES' | 'ALL_ELIGIBLE';
+  /** Eligible units required in one promo bundle. Defaults to 2. */
+  mixMatchBundleQty?: number;
   mixMatchAllowSameProduct?: boolean;
 }
 
