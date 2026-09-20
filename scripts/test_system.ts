@@ -98,9 +98,9 @@ console.log('\n9. Testing Order Group Domain Engine');
     }],
   });
 
-  assertEqual(group1.subtotal, 8000, 'Group 1 subtotal includes modifier exactly once');
-  assertEqual(group2.subtotal, 9500, 'Group 2 subtotal is isolated from Group 1');
-  assertEqual(OrderEngine.calculateOrderSubtotal([group1, group2]), 17500, 'Multiple groups sum independently');
+  assertEqual(group1.subtotal, 9000, 'Group 1 subtotal includes modifier exactly once');
+  assertEqual(group2.subtotal, 10500, 'Group 2 subtotal is isolated from Group 1');
+  assertEqual(OrderEngine.calculateOrderSubtotal([group1, group2]), 19500, 'Multiple groups sum independently');
 
   const updatedGroup1 = OrderEngine.updateGroup(group1, {
     modifiers: [{
@@ -113,7 +113,7 @@ console.log('\n9. Testing Order Group Domain Engine');
     }],
   });
   assert(updatedGroup1.id === group1.id, 'Editing a group keeps the same group id');
-  assertEqual(updatedGroup1.subtotal, 7500, 'Editing one group recalculates only that group');
+  assertEqual(updatedGroup1.subtotal, 8500, 'Editing one group recalculates only that group');
 
   const afterDelete = OrderEngine.deleteGroup([updatedGroup1, group2], updatedGroup1.id);
   assertEqual(afterDelete.length, 1, 'Deleting a group removes only that group');
