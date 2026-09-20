@@ -57,7 +57,7 @@ service cloud.firestore {
     }
 
     match /deliveryAreas/{docId} {
-      allow read: true;
+      allow read: if true;
       allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
