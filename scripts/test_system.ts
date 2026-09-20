@@ -10,6 +10,7 @@
  */
 
 import { PricingEngine } from '../src/services/pricingEngine';
+import { OrderEngine } from '../src/services/orderEngine';
 import { errorService } from '../src/services/errorService';
 import { ReceiptService } from '../src/services/receiptService';
 import { WhatsAppService } from '../src/services/whatsappService';
@@ -45,6 +46,118 @@ function assertEqual<T>(actual: T, expected: T, testName: string) {
     console.error(`  [FAIL] ${testName} (Expected: ${JSON.stringify(expected)}, Actual: ${JSON.stringify(actual)})`);
     testsFailed++;
   }
+}
+
+
+
+// 9. ORDER GROUP DOMAIN ENGINE
+console.log('\n9. Testing Order Group Domain Engine');
+{
+  const makeItem = (id: string, name: string, price: number, quantity: number): any => ({
+    id: `item-${id}`,
+    productId: id,
+    name,
+    basePrice: price,
+    unitPrice: price,
+    quantity,
+    selectedModifiers: [],
+    modifiersPrice: 0,
+    subtotal: price * quantity,
+  });
+
+  const group1 = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [
+      makeItem('bakwan', 'Bakwan', 2000, 2),
+      makeItem('tahu', 'Tahu', 1500, 2),
+      makeItem('tempe', 'Tempe', 1000, 1),
+    ],
+    modifiers: [{
+      modifierId: 'balado',
+      name: 'Balado',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 1000,
+      quantity: 1,
+    }],
+  });
+
+  const group2 = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [
+      makeItem('pisang', 'Pisang', 2500, 2),
+      makeItem('cireng', 'Cireng', 1500, 3),
+    ],
+    modifiers: [{
+      modifierId: 'bbq',
+      name: 'BBQ',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 1000,
+      quantity: 1,
+    }],
+  });
+
+  assertEqual(group1.subtotal, 8000, 'Group 1 subtotal includes modifier exactly once');
+  assertEqual(group2.subtotal, 9500, 'Group 2 subtotal is isolated from Group 1');
+  assertEqual(OrderEngine.calculateOrderSubtotal([group1, group2]), 17500, 'Multiple groups sum independently');
+
+  const updatedGroup1 = OrderEngine.updateGroup(group1, {
+    modifiers: [{
+      modifierId: 'pedas',
+      name: 'Pedas',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 500,
+      quantity: 1,
+    }],
+  });
+  assert(updatedGroup1.id === group1.id, 'Editing a group keeps the same group id');
+  assertEqual(updatedGroup1.subtotal, 7500, 'Editing one group recalculates only that group');
+
+  const afterDelete = OrderEngine.deleteGroup([updatedGroup1, group2], updatedGroup1.id);
+  assertEqual(afterDelete.length, 1, 'Deleting a group removes only that group');
+  assert(afterDelete[0].id === group2.id, 'Other groups remain intact after deletion');
+
+  const emptyGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [],
+    modifiers: [],
+  });
+  assert(!OrderEngine.validateGroup(emptyGroup).valid, 'Empty Order Group is rejected');
+
+  const legacyOrder: Order = {
+    id: 'legacy-1',
+    orderNumber: '#HF-LEGACY',
+    createdAt: new Date().toISOString(),
+    source: 'WEB',
+    status: 'COMPLETED',
+    customer: { name: 'Legacy', whatsapp: '-' },
+    serviceType: 'TAKEAWAY',
+    items: [{
+      cartItemId: 'legacy-item',
+      productId: 'p1',
+      productName: 'Bakwan',
+      productImage: '',
+      basePrice: 2000,
+      unitPrice: 2000,
+      quantity: 2,
+      selectedModifiers: [],
+      modifiersPrice: 0,
+      lineTotal: 4000,
+      categoryId: 'gorengan',
+    }],
+    subtotal: 4000,
+    discount: 0,
+    deliveryFee: 0,
+    total: 4000,
+    paymentMethod: 'CASH',
+    amountPaid: 4000,
+    change: 0,
+  };
+  const normalized = OrderEngine.normalizeOrder(legacyOrder);
+  assertEqual(normalized.groups?.length, 1, 'Legacy flat order can be normalized to one group');
+  assertEqual(normalized.groups?.[0]?.subtotal, 4000, 'Legacy normalized group keeps original total');
 }
 
 console.log('\n======================================================');
