@@ -11,13 +11,14 @@ interface OrderGroupModalProps {
   products: Product[];
   modifierGroups: ModifierGroup[];
   promos?: Promo[];
+  orderGroups?: OrderGroup[];
   existingGroup?: OrderGroup | null;
   onClose: () => void;
   onSave: (group: OrderGroup) => void;
 }
 
 export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
-  isOpen, category, products, modifierGroups, promos = [], existingGroup, onClose, onSave,
+  isOpen, category, products, modifierGroups, promos = [], orderGroups = [], existingGroup, onClose, onSave,
 }) => {
   const categoryProducts = useMemo(
     () => products.filter((p) => p.categoryId === category?.id && p.isActive && p.isAvailable),
@@ -101,8 +102,12 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
     createdAt: existingGroup?.createdAt,
   });
 
+  const previewGroups = existingGroup
+    ? orderGroups.map((group) => (group.id === existingGroup.id ? previewGroup : group))
+    : [...orderGroups, previewGroup];
+
   const previewMixMatch = PricingEngine.calculateMixMatchDiscounts(
-    OrderEngine.flattenGroups([previewGroup]),
+    OrderEngine.flattenGroups(previewGroups),
     promos
   );
 
