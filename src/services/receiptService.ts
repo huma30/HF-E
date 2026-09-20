@@ -1,6 +1,8 @@
 import { Order, StoreSettings, PointRedemption, Customer } from '../types';
 
 export class ReceiptService {
+  private static readonly DASH_LINE = '----------------------------------------';
+
   private static getDisplayGroups(order: Order) {
     return order.groups && order.groups.length > 0 ? order.groups : [];
   }
@@ -20,7 +22,7 @@ export class ReceiptService {
       }
       if (group.note?.trim()) lines.push(`   ↳ Catatan Group: "${group.note.trim()}"`);
       lines.push(`   Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}`);
-      if (index < groups.length - 1) lines.push(dashLine);
+      if (index < groups.length - 1) lines.push(ReceiptService.DASH_LINE);
     });
   }
 
