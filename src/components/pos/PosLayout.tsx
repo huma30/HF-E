@@ -116,6 +116,10 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   const handleProductClick = (product: Product) => {
     if (!product.isAvailable) return;
     const category = categories.find((c) => c.id === product.categoryId);
+    if (OrderEngine.getOrderingConfig(category).groupingEnabled) {
+      setActiveOrderGroupCategory(category || null);
+      return;
+    }
     const isBatchCategory =
       category?.batchModifierEnabled === true &&
       !!category.batchModifierGroupId;
