@@ -55,7 +55,6 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
   const [imageUrl, setImageUrl] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   const [isPopular, setIsPopular] = useState(false);
-  const [mixMatchEligible, setMixMatchEligible] = useState(true);
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
   const [wholesaleRules, setWholesaleRules] = useState<WholesaleRule[]>([]);
   const [selectedModifierGroupIds, setSelectedModifierGroupIds] = useState<string[]>([]);
@@ -72,7 +71,6 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setImageUrl('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80');
     setIsAvailable(true);
     setIsPopular(false);
-    setMixMatchEligible(true);
     setWholesaleEnabled(false);
     setWholesaleRules([]);
     setSelectedModifierGroupIds([]);
@@ -89,7 +87,6 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setImageUrl(p.imageUrl);
     setIsAvailable(p.isAvailable);
     setIsPopular(!!p.isPopular);
-    setMixMatchEligible(p.mixMatchEligible !== false);
     setWholesaleEnabled(!!p.wholesaleEnabled);
     setWholesaleRules(p.wholesaleRules ? [...p.wholesaleRules] : []);
     setSelectedModifierGroupIds(p.modifierGroupIds ? [...p.modifierGroupIds] : []);
