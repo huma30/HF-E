@@ -120,6 +120,8 @@ export class PricingEngine {
 
     for (const promo of activeMixPromos) {
       const minQty = Math.max(1, promo.mixMatchMinQty ?? promo.mixMatchQuantity ?? 2);
+      const bundleQty = Math.max(1, promo.mixMatchBundleQty ?? promo.mixMatchMinQty ?? promo.mixMatchQuantity ?? 2);
+      const rule = promo.mixMatchRule ?? 'FULL_MULTIPLES';
       const allowSameProduct = promo.mixMatchAllowSameProduct !== false;
       const targetProductIds = promo.mixMatchProductIds || [];
       const targetCategoryIds = promo.mixMatchCategoryIds || [];
@@ -149,10 +151,16 @@ export class PricingEngine {
         }
       }
 
-      // ALL eligible units receive the promo price
-      const selectedUnits = matchingUnits;
+      // FULL_MULTIPLES is the default: only complete bundles receive promo price.
+      // Example bundleQty=2: 3 eligible units -> 2 promo + 1 normal.
+      const qualifiedQuantity = rule === 'ALL_ELIGIBLE'
+        ? matchingUnits.length
+        : Math.floor(matchingUnits.length / bundleQty) * bundleQty;
+
+      if (qualifiedQuantity <= 0) continue;
+
+      const selectedUnits = matchingUnits.slice(0, qualifiedQuantity);
       const eligibleQuantity = selectedUnits.length;
-      if (eligibleQuantity <= 0) continue;
 
       // Sum of regular prices of all eligible units
       const normalPriceSum = selectedUnits.reduce((sum, u) => sum + u.unitPrice, 0);
@@ -219,7 +227,7 @@ export class PricingEngine {
         appliedBundles.push({
           promoId: promo.id,
           promoName: promo.name,
-          bundleCount: 1,
+          bundleCount: rule === 'ALL_ELIGIBLE' ? 1 : Math.floor(eligibleQuantity / bundleQty),
           itemsDiscountedCount: eligibleQuantity,
           discount: promoDiscount,
           promoPricePerItem: effectivePromoPricePerItem,
