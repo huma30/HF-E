@@ -559,8 +559,15 @@ export class ReceiptService {
     ctx.font = '12px "Courier New", Courier, monospace';
     drawRow('Subtotal Pesanan', 'Rp ' + order.subtotal.toLocaleString('id-ID'));
     if (order.discount > 0) {
-      const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
-      drawRow(discountLabel, '-Rp ' + order.discount.toLocaleString('id-ID'));
+      if (order.discountDetails?.length) {
+        order.discountDetails.forEach((detail) => {
+          drawRow('  ' + detail.label, '-Rp ' + detail.amount.toLocaleString('id-ID'));
+        });
+      } else {
+        const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
+        drawRow(discountLabel, '-Rp ' + order.discount.toLocaleString('id-ID'));
+      }
+      drawRow('Total Potongan', '-Rp ' + order.discount.toLocaleString('id-ID'));
       const afterDiscount = Math.max(0, order.subtotal - order.discount);
       drawRow('Setelah Potongan', 'Rp ' + afterDiscount.toLocaleString('id-ID'));
     }
