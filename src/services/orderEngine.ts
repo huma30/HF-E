@@ -155,9 +155,7 @@ export class OrderEngine {
 
     const config = this.getOrderingConfig(category);
     if (config.groupingEnabled && config.modifierEnabled) {
-      const required =
-        category?.batchModifierRequired === true ||
-        category?.orderingConfig?.modifierEnabled === true;
+      const required = category?.batchModifierRequired === true;
 
       if (required && (!group.modifiers || group.modifiers.length === 0)) {
         errors.push('Modifier/bumbu wajib dipilih untuk Order Group ini.');
