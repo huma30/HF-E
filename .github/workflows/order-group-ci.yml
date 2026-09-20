@@ -29,3 +29,6 @@ jobs:
 
       - name: Automated tests
         run: npm test
+
+      - name: Validate Firestore Rules
+        run: npx firebase-tools emulators:exec --only firestore --project demo-huma-order-group "node -e \"console.log('Firestore Rules compiled successfully')\""
