@@ -92,6 +92,9 @@ export class PricingEngine {
     const unitPool: ItemUnit[] = [];
     for (const item of items) {
       for (let i = 0; i < item.quantity; i++) {
+        // Missing mixMatchEligible is intentionally treated as eligible for
+        // backward compatibility with existing cart/orders.
+        if (item.mixMatchEligible === false) continue;
         unitPool.push({
           cartItemId: item.cartItemId,
           productId: item.productId,
