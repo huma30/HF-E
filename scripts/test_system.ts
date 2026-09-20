@@ -216,7 +216,7 @@ console.log('\n9. Testing Order Group Domain Engine');
     mixMatchPromoPrice: 1500,
     mixMatchDiscountType: 'FIXED_PRICE',
     mixMatchDiscountValue: 1500,
-    mixMatchProductIds: ['bakwan', 'tahu'],
+    mixMatchProductIds: ['bakwan', 'tahu', 'pisang'],
     mixMatchCategoryIds: [],
   } as Promo;
 
@@ -225,7 +225,7 @@ console.log('\n9. Testing Order Group Domain Engine');
     [groupPromo]
   );
   assertEqual(groupedPricing.discount, 1000, 'Mix & Match applies to eligible products inside Order Group');
-  const threeEligible = OrderEngine.createGroup({ categoryId: 'gorengan', items: [makeItem('bakwan', 'Bakwan', 2000, 1), makeItem('tahu', 'Tahu', 1500, 1), makeItem('bakwan', 'Bakwan', 2000, 1)], modifiers: [] });
+  const threeEligible = OrderEngine.createGroup({ categoryId: 'gorengan', items: [makeItem('bakwan', 'Bakwan', 2000, 1), makeItem('tahu', 'Tahu', 1500, 1), makeItem('pisang', 'Pisang', 2500, 1)], modifiers: [] });
   const threeEligiblePricing = PricingEngine.calculateMixMatchDiscounts(OrderEngine.flattenGroups([threeEligible]), [groupPromo]);
   assertEqual(threeEligiblePricing.appliedBundles[0]?.itemsDiscountedCount, 2, '3 eligible items discounts only one complete pair');
   assertEqual(threeEligiblePricing.discount, 500, 'Odd eligible quantity leaves one item at normal price');
