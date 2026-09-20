@@ -8,9 +8,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { getApp, getApps, initializeApp } from 'firebase/app';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, firebaseConfig } from '../services/firebase';
+import { auth, db } from '../services/firebase';
 import { AdminUser, Role } from '../types';
 
 interface AuthContextType {
@@ -53,24 +52,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setAdminProfile(data);
             setRole(data.role);
           } else {
-            // Only the designated owner may bootstrap their own first admin profile.
+            // Default bootstrap: If user is the designated owner huma301123@gmail.com or first user
             const isOwner = user.email?.toLowerCase() === 'huma301123@gmail.com';
-            if (isOwner) {
-              const newAdmin: AdminUser = {
-                uid: user.uid,
-                email: user.email || '',
-                name: user.displayName || 'Owner HUMA',
-                role: 'SUPER_ADMIN',
-                isActive: true,
-                createdAt: new Date().toISOString(),
-              };
-              await setDoc(adminDocRef, newAdmin, { merge: true });
-              setAdminProfile(newAdmin);
-              setRole('SUPER_ADMIN');
-            } else {
-              setAdminProfile(null);
-              setRole(null);
-            }
+            const defaultRole: Role = isOwner ? 'SUPER_ADMIN' : 'CASHIER';
+            const newAdmin: AdminUser = {
+              uid: user.uid,
+              email: user.email || '',
+              name: user.displayName || (isOwner ? 'Owner HUMA' : 'Staff Kasir'),
+              role: defaultRole,
+              isActive: true,
+              createdAt: new Date().toISOString(),
+            };
+            await setDoc(adminDocRef, newAdmin, { merge: true });
+            setAdminProfile(newAdmin);
+            setRole(defaultRole);
           }
         } catch (err) {
           console.warn('[HUMA] Admin profile fetch error:', err);
@@ -161,29 +156,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const registerAdmin = async (email: string, pass: string, name: string, assignedRole: Role) => {
-    const registrationAppName = 'huma-admin-registration';
     try {
-      const registrationApp = getApps().some((item) => item.name === registrationAppName)
-        ? getApp(registrationAppName)
-        : initializeApp(firebaseConfig, registrationAppName);
-      const registrationAuth = (await import('firebase/auth')).getAuth(registrationApp);
-
-      const cred = await createUserWithEmailAndPassword(registrationAuth, email.trim(), pass);
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
       const newAdmin: AdminUser = {
         uid: cred.user.uid,
-        email: email.trim(),
-        name: name.trim(),
+        email,
+        name,
         role: assignedRole,
         isActive: true,
         createdAt: new Date().toISOString(),
       };
-
-      // The primary auth session remains the currently signed-in owner/admin.
       await setDoc(doc(db, 'admins', cred.user.uid), newAdmin, { merge: true });
-      await signOut(registrationAuth);
-    } catch (err) {
-      console.error('[HUMA Auth] Admin registration failed:', err);
-      throw err;
+      setAdminProfile(newAdmin);
+      setRole(assignedRole);
+      localStorage.setItem('huma_quick_role', assignedRole);
+    } catch {
+      switchQuickRole(assignedRole);
     }
   };
 
