@@ -14,8 +14,6 @@ import { WhatsAppService } from '../src/services/whatsappService';
 import { PricingEngine } from '../src/services/pricingEngine';
 import { OrderEngine } from '../src/services/orderEngine';
 import { errorService } from '../src/services/errorService';
-import { ReceiptService } from '../src/services/receiptService';
-import { WhatsAppService } from '../src/services/whatsappService';
 import {
   DEFAULT_PRODUCTS,
   DEFAULT_CATEGORIES,
