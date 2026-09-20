@@ -94,7 +94,7 @@ export class ReceiptService {
 
     lines.push(dashLine);
     lines.push('RINGKASAN PEMBAYARAN');
-    lines.push('Subtotal Pesanan'.padEnd(26, ' ') + 'Rp ' + order.subtotal.toLocaleString('id-ID').padStart(14, ' '));
+    lines.push('Subtotal Semua Pesanan'.padEnd(26, ' ') + 'Rp ' + order.subtotal.toLocaleString('id-ID').padStart(14, ' '));
 
     if (order.discount > 0) {
       if (order.discountDetails?.length) {
@@ -557,7 +557,7 @@ export class ReceiptService {
 
     // 5. Payment Breakdown
     ctx.font = '12px "Courier New", Courier, monospace';
-    drawRow('Subtotal Pesanan', 'Rp ' + order.subtotal.toLocaleString('id-ID'));
+    drawRow('Subtotal Semua Pesanan', 'Rp ' + order.subtotal.toLocaleString('id-ID'));
     if (order.discount > 0) {
       if (order.discountDetails?.length) {
         order.discountDetails.forEach((detail) => {
@@ -828,7 +828,7 @@ export class ReceiptService {
 
           <div class="divider"></div>
           <div class="bold" style="margin-bottom: 3px;">RINGKASAN PEMBAYARAN</div>
-          <div class="row"><span>Subtotal Pesanan</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
+          <div class="row"><span>Subtotal Semua Pesanan</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
           ${order.discount > 0 ? `
             <div class="row"><span>Potongan Harga ${order.promoCode ? `(${order.promoCode})` : ''}</span><span>-Rp ${order.discount.toLocaleString('id-ID')}</span></div>
             <div class="row"><span>Setelah Potongan</span><span>Rp ${Math.max(0, order.subtotal - order.discount).toLocaleString('id-ID')}</span></div>
