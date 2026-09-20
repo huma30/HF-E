@@ -122,6 +122,11 @@ export interface Category {
   batchModifierMinSelection?: number;
   batchModifierMaxSelection?: number;
   batchModifierMode?: 'UNIFORM' | 'PER_ITEM' | 'POOL';
+  /**
+   * Canonical configuration for grouped ordering.
+   * Optional during migration so legacy categories remain valid.
+   */
+  orderingConfig?: OrderingConfig;
 }
 
 export interface WholesaleRule {
@@ -233,10 +238,24 @@ export interface OrderGroupModifier {
   quantity: number;
 }
 
+export interface OrderGroupItem {
+  id: string;
+  productId: string;
+  name: string;
+  productImage?: string;
+  basePrice: number;
+  unitPrice: number;
+  quantity: number;
+  selectedModifiers: SelectedModifier[];
+  modifiersPrice: number;
+  subtotal: number;
+  notes?: string;
+}
+
 export interface OrderGroup {
   id: string;
   categoryId: string;
-  items: CartItem[];
+  items: OrderGroupItem[];
   modifiers: OrderGroupModifier[];
   subtotal: number;
   note?: string;
