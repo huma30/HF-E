@@ -80,48 +80,54 @@ service cloud.firestore {
     }
 
     match /analyticsDaily/{docId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
     }
 
     match /analyticsMonthly/{docId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /auditLogs/{docId} {
-      allow read, write: if true;
+      allow read: if hasRole(['SUPER_ADMIN', 'MANAGER']);
+      allow create: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
+      allow update, delete: if hasRole(['SUPER_ADMIN']);
     }
 
     match /admins/{userId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() &&
+        (request.auth.uid == userId || isAdminEmail());
+      allow create, update, delete: if hasRole(['SUPER_ADMIN']);
     }
 
     match /printerSettings/{docId} {
-      allow read, write: if true;
+      allow read: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
-    // Customer records and Loyalty Points: Accessible by store app and staff
     match /customers/{customerId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
     }
 
     match /pointLedger/{ledgerId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
     }
 
     match /rewards/{rewardId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /pointRewards/{rewardId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /pointTransactions/{transactionId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
     }
 
     match /pointRedemptions/{redemptionId} {
-      allow read, write: if true;
+      allow read, write: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
     }
   }
 }
