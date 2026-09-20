@@ -16,7 +16,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
-import { Product, Promo, StoreSettings, Category, ModifierGroup } from '../../types';
+import { Product, Promo, StoreSettings, Category, ModifierGroup, OrderGroup } from '../../types';
 import { BatchModifierModal } from './BatchModifierModal';
 
 interface CartDrawerProps {
@@ -28,6 +28,10 @@ interface CartDrawerProps {
   settings?: StoreSettings | null;
   categories?: Category[];
   modifierGroups?: ModifierGroup[];
+  orderGroups?: OrderGroup[];
+  onEditOrderGroup?: (group: OrderGroup) => void;
+  onDeleteOrderGroup?: (groupId: string) => void;
+  onAddOrderGroup?: (category: Category) => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -39,6 +43,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   settings,
   categories = [],
   modifierGroups = [],
+  orderGroups = [],
+  onEditOrderGroup,
+  onDeleteOrderGroup,
+  onAddOrderGroup,
 }) => {
   const {
     items,
@@ -246,6 +254,64 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Canonical Order Groups */}
+              {orderGroups.length > 0 && (
+                <div className="space-y-3 mb-4">
+                  {orderGroups.map((group, groupIndex) => {
+                    const category = categories.find((c) => c.id === group.categoryId);
+                    return (
+                      <div key={group.id} className="p-3 rounded-2xl border border-purple-100 bg-purple-50/50">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div>
+                            <div className="text-[10px] font-extrabold uppercase tracking-wide text-purple-600">
+                              Order Group {groupIndex + 1}
+                            </div>
+                            <h4 className="font-heading font-extrabold text-sm text-[#2E1A47]">
+                              {category?.name || 'Pesanan'}
+                            </h4>
+                          </div>
+                          <div className="flex gap-1">
+                            {onEditOrderGroup && (
+                              <button type="button" onClick={() => onEditOrderGroup(group)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50">
+                                Edit
+                              </button>
+                            )}
+                            {onDeleteOrderGroup && (
+                              <button type="button" onClick={() => onDeleteOrderGroup(group.id)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white border border-rose-100 text-rose-600 hover:bg-rose-50">
+                                Hapus
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          {group.items.map((item) => (
+                            <div key={item.id} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-semibold text-gray-700">{item.name} × {item.quantity}</span>
+                              <span className="font-bold text-gray-800">Rp {item.subtotal.toLocaleString('id-ID')}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {group.modifiers.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-purple-100 text-[10px] text-purple-700">
+                            Bumbu: {group.modifiers.map((modifier) => modifier.name).join(', ')}
+                            {' · Rp ' + group.modifiers.reduce((sum, modifier) => sum + modifier.price * modifier.quantity, 0).toLocaleString('id-ID')}
+                          </div>
+                        )}
+                        <div className="mt-2 flex items-center justify-between pt-2 border-t border-purple-100">
+                          <span className="text-[10px] text-gray-500">Subtotal grup</span>
+                          <span className="font-heading font-extrabold text-sm text-[#2E1A47]">Rp {group.subtotal.toLocaleString('id-ID')}</span>
+                        </div>
+                        {category && onAddOrderGroup && (
+                          <button type="button" onClick={() => onAddOrderGroup(category)} className="mt-2 w-full py-2 rounded-xl bg-white border border-purple-200 text-xs font-extrabold text-[#2E1A47] hover:bg-purple-50">
+                            + Tambah {category.name} Lagi
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Items List (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
