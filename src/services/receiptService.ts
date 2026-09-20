@@ -1,6 +1,30 @@
 import { Order, StoreSettings, PointRedemption, Customer } from '../types';
 
 export class ReceiptService {
+  private static getDisplayGroups(order: Order) {
+    return order.groups && order.groups.length > 0 ? order.groups : [];
+  }
+
+  private static appendGroupText(lines: string[], order: Order): void {
+    const groups = this.getDisplayGroups(order);
+    groups.forEach((group, index) => {
+      lines.push(`GROUP ${index + 1}${group.categoryId ? ` [${group.categoryId}]` : ''}`);
+      group.items.forEach((item) => {
+        const lineText = `${item.quantity}x ${item.name}`.padEnd(26, ' ') + `Rp ${item.subtotal.toLocaleString('id-ID')}`.padStart(14, ' ');
+        lines.push(lineText);
+        if (item.selectedModifiers?.length) lines.push(`   ↳ ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`);
+        if (item.notes?.trim()) lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
+      });
+      if (group.modifiers.length) {
+        lines.push(`   ↳ Bumbu: ${group.modifiers.map((m) => m.name).join(', ')}`);
+      }
+      if (group.note?.trim()) lines.push(`   ↳ Catatan Group: "${group.note.trim()}"`);
+      lines.push(`   Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}`);
+      if (index < groups.length - 1) lines.push(dashLine);
+    });
+  }
+
+
   /**
    * Format standard thermal receipt text (58mm/80mm compatible)
    */
@@ -48,31 +72,23 @@ export class ReceiptService {
     lines.push('ITEM');
     lines.push(dashLine);
 
-    order.items.forEach((item) => {
-      const lineText = `${item.quantity}x ${item.productName}`.padEnd(26, ' ') + `Rp ${item.lineTotal.toLocaleString('id-ID')}`.padStart(14, ' ');
-      lines.push(lineText);
-
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
-        const modSummary = item.selectedModifiers.map((m) => m.item.name).join(', ');
-        lines.push(`   ↳ ${modSummary}`);
-      }
-
-      if (item.notes && item.notes.trim()) {
-        lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
-      }
-    });
-
-    if (order.batchModifiers && order.batchModifiers.length > 0) {
-      lines.push(dashLine);
-      lines.push('PILIHAN BUMBU:');
-      order.batchModifiers.forEach((bm) => {
-        const optionNames =
-          bm.selectedModifiers?.map((m) => m.modifierName) ||
-          bm.options.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName);
-        if (optionNames.length > 0) {
-          lines.push(` * ${bm.modifierGroupName || bm.categoryName}: ${optionNames.join(', ')}`);
-        }
+    if (order.groups && order.groups.length > 0) {
+      this.appendGroupText(lines, order);
+    } else {
+      order.items.forEach((item) => {
+        const lineText = `${item.quantity}x ${item.productName}`.padEnd(26, ' ') + `Rp ${item.lineTotal.toLocaleString('id-ID')}`.padStart(14, ' ');
+        lines.push(lineText);
+        if (item.selectedModifiers?.length) lines.push(`   ↳ ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`);
+        if (item.notes?.trim()) lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
       });
+      if (order.batchModifiers?.length) {
+        lines.push(dashLine);
+        lines.push('PILIHAN BUMBU:');
+        order.batchModifiers.forEach((bm) => {
+          const optionNames = bm.selectedModifiers?.map((m) => m.modifierName) || bm.options.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName);
+          if (optionNames.length) lines.push(` * ${bm.modifierGroupName || bm.categoryName}: ${optionNames.join(', ')}`);
+        });
+      }
     }
 
     lines.push(dashLine);
