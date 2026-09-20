@@ -668,30 +668,6 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
             )}
           </div>
 
-          {/* Mix & Match Eligibility */}
-          <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200/80 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h5 className="font-heading font-bold text-xs text-[#2E1A47]">
-                  Mix & Match Eligible
-                </h5>
-                <p className="text-[11px] text-gray-500">
-                  Produk ini boleh ikut paket Mix & Match otomatis.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMixMatchEligible((prev) => !prev)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                  mixMatchEligible ? 'bg-emerald-600 text-white shadow-xs' : 'bg-gray-200 text-gray-600'
-                }`}
-                aria-pressed={mixMatchEligible}
-              >
-                {mixMatchEligible ? 'Eligible' : 'Tidak'}
-              </button>
-            </div>
-          </div>
-
           {/* Modifiers Links */}
           <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-100 space-y-2">
             <h5 className="font-heading font-bold text-xs text-[#2E1A47]">
