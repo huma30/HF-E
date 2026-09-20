@@ -170,12 +170,18 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [items]);
 
   // Derived calculations
-  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const legacyItemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const groupedItemCount = orderGroups.reduce(
+    (sum, group) => sum + group.items.reduce((groupSum, item) => groupSum + item.quantity, 0),
+    0
+  );
+  const itemCount = legacyItemCount + groupedItemCount;
   const groupedSubtotal = orderGroups.reduce(
     (sum, group) => sum + OrderEngine.calculateGroupSubtotal(group),
     0
   );
-  const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const legacySubtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const subtotal = legacySubtotal + groupedSubtotal;
 
   // 1. Calculate Mix & Match automatic discounts
   const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(items, availablePromos);
