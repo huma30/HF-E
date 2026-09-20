@@ -248,6 +248,56 @@ console.log('1. Testing PricingEngine: Wholesale & Modifiers');
   assertEqual(PricingEngine.calculateLineTotal(13500, 5000, 5), (13500 + 5000) * 5, 'Line total (13.5k + 5k) * 5 = Rp 92.500');
 }
 
+
+/**
+ * Explicit Mix & Match eligibility:
+ * undefined/missing remains eligible for legacy products;
+ * false excludes a product from automatic bundle matching.
+ */
+{
+  const mixEligible: CartItem = {
+    cartItemId: 'mix-eligible',
+    productId: 'gorengan-a',
+    productName: 'Gorengan A',
+    productImage: '',
+    basePrice: 5000,
+    unitPrice: 5000,
+    quantity: 2,
+    selectedModifiers: [],
+    modifiersPrice: 0,
+    lineTotal: 10000,
+    categoryId: 'gorengan',
+    mixMatchEligible: true,
+  };
+
+  const mixIneligible: CartItem = {
+    ...mixEligible,
+    cartItemId: 'mix-ineligible',
+    productId: 'gorengan-b',
+    mixMatchEligible: false,
+  };
+
+  const mixPromo: Promo = {
+    id: 'promo-mix-eligible-test',
+    code: 'MIXELIG',
+    name: 'Mix Eligible Test',
+    type: 'MIX_MATCH',
+    value: 0,
+    minPurchase: 0,
+    usedCount: 0,
+    isActive: true,
+    mixMatchQuantity: 2,
+    mixMatchCategoryIds: ['gorengan'],
+    mixMatchDiscountType: 'FIXED_PRICE',
+    mixMatchDiscountValue: 7000,
+  };
+
+  const eligibleResult = PricingEngine.calculateMixMatchDiscounts([mixEligible], [mixPromo]);
+  const blockedResult = PricingEngine.calculateMixMatchDiscounts([mixIneligible], [mixPromo]);
+  assertEqual(eligibleResult.discount, 3000, 'Mix & Match Eligible product participates');
+  assertEqual(blockedResult.discount, 0, 'Mix & Match ineligible product is excluded');
+}
+
 // 2. PROMO & VOUCHER ENGINE TESTING
 console.log('\n2. Testing PricingEngine: Promo Vouchers');
 {
