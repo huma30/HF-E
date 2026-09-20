@@ -261,6 +261,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <div className="space-y-3 mb-4">
                   {orderGroups.map((group, groupIndex) => {
                     const category = categories.find((c) => c.id === group.categoryId);
+                    const groupMixMatchDiscount = mixMatchGroupDiscounts[group.id] || 0;
+                    const groupPayable = Math.max(0, group.subtotal - groupMixMatchDiscount);
                     return (
                       <div key={group.id} className="p-3 rounded-2xl border border-purple-100 bg-purple-50/50">
                         <div className="flex items-center justify-between gap-2 mb-2">
@@ -300,8 +302,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           </div>
                         )}
                         <div className="mt-2 flex items-center justify-between pt-2 border-t border-purple-100">
-                          <span className="text-[10px] text-gray-500">Subtotal grup</span>
-                          <span className="font-heading font-extrabold text-sm text-[#2E1A47]">Rp {group.subtotal.toLocaleString('id-ID')}</span>
+                          <div>
+                            <span className="text-[10px] text-gray-500">Subtotal grup</span>
+                            {groupMixMatchDiscount > 0 && (
+                              <div className="text-[10px] font-extrabold text-emerald-700">
+                                Mix & Match -Rp {groupMixMatchDiscount.toLocaleString('id-ID')}
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            {groupMixMatchDiscount > 0 && (
+                              <div className="text-[10px] text-gray-400 line-through">
+                                Rp {group.subtotal.toLocaleString('id-ID')}
+                              </div>
+                            )}
+                            <span className="font-heading font-extrabold text-sm text-[#2E1A47]">Rp {groupPayable.toLocaleString('id-ID')}</span>
+                          </div>
                         </div>
                         {category && onAddOrderGroup && (
                           <button type="button" onClick={() => onAddOrderGroup(category)} className="mt-2 w-full py-2 rounded-xl bg-white border border-purple-200 text-xs font-extrabold text-[#2E1A47] hover:bg-purple-50">
