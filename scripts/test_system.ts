@@ -199,6 +199,46 @@ console.log('\n9. Testing Order Group Domain Engine');
   const normalized = OrderEngine.normalizeOrder(legacyOrder);
   assertEqual(normalized.groups?.length, 1, 'Legacy flat order can be normalized to one group');
   assertEqual(normalized.groups?.[0]?.subtotal, 4000, 'Legacy normalized group keeps original total');
+
+  const groupPromo = {
+    id: 'promo-group-mix',
+    code: 'GROUPMIX',
+    name: 'Group Mix & Match',
+    type: 'MIX_MATCH',
+    value: 1500,
+    minPurchase: 0,
+    usedCount: 0,
+    isActive: true,
+    isMixMatch: true,
+    mixMatchMinQty: 2,
+    mixMatchPromoPrice: 1500,
+    mixMatchDiscountType: 'FIXED_PRICE',
+    mixMatchDiscountValue: 1500,
+    mixMatchProductIds: ['bakwan', 'tahu'],
+    mixMatchCategoryIds: [],
+  } as Promo;
+
+  const groupedPricing = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([group1]),
+    [groupPromo]
+  );
+  assertEqual(groupedPricing.discount, 5000, 'Mix & Match applies to eligible products inside Order Group');
+  assertEqual(
+    groupedPricing.groupDiscounts?.[group1.id],
+    5000,
+    'Mix & Match discount is synchronized to the Order Group'
+  );
+
+  const belowMinimumGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('bakwan', 'Bakwan', 2000, 1)],
+    modifiers: [],
+  });
+  const belowMinimumPricing = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([belowMinimumGroup]),
+    [groupPromo]
+  );
+  assertEqual(belowMinimumPricing.discount, 0, 'Mix & Match Order Group stays normal below minimum quantity');
 }
 
 console.log('\n======================================================');
