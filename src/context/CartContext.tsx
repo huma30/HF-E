@@ -184,7 +184,11 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const subtotal = legacySubtotal + groupedSubtotal;
 
   // 1. Calculate Mix & Match automatic discounts
-  const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(items, availablePromos);
+  const pricingItems = useMemo(
+    () => [...items, ...OrderEngine.flattenGroups(orderGroups)],
+    [items, orderGroups]
+  );
+  const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(pricingItems, availablePromos);
   const mixMatchDiscount = mixMatchResult.discount;
   const mixMatchBundles = mixMatchResult.appliedBundles;
 
