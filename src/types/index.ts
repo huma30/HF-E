@@ -326,6 +326,11 @@ export interface OrderCustomer {
   notes?: string;
 }
 
+export interface OrderDiscountDetail {
+  label: string;
+  amount: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: string; // e.g. #HF-000125
@@ -349,6 +354,8 @@ export interface Order {
   items: CartItem[];
   subtotal: number;
   discount: number;
+  /** Detailed breakdown of the total discount for receipt/audit display. */
+  discountDetails?: OrderDiscountDetail[];
   promoCode?: string;
   deliveryFee: number;
   total: number;
