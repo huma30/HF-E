@@ -164,7 +164,6 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
         isAvailable,
         isActive: true,
         isPopular,
-        mixMatchEligible,
         wholesaleEnabled,
         wholesaleRules: wholesaleEnabled ? wholesaleRules : [],
         modifierGroupIds: selectedModifierGroupIds,
