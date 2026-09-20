@@ -36,7 +36,9 @@ export class WhatsAppService {
 
     if (order.groups && order.groups.length > 0) {
       order.groups.forEach((group, index) => {
-        lines.push(`*GROUP ${index + 1}*`);
+        lines.push(`
+📦 *GROUP ${index + 1}*`);
+        lines.push(`Kategori: ${group.categoryId || '-'}`);
         group.items.forEach((item) => {
           lines.push(`• *${item.quantity}x ${item.name}* — Rp ${item.subtotal.toLocaleString('id-ID')}`);
           if (item.selectedModifiers?.length) {
@@ -44,9 +46,10 @@ export class WhatsAppService {
           }
           if (item.notes?.trim()) lines.push(`  ↳ _Catatan: "${item.notes}"_`);
         });
-        if (group.modifiers.length) lines.push(`  🧂 _Bumbu: ${group.modifiers.map((m) => m.name).join(', ')}_`);
+        lines.push(`  🧂 *Bumbu: ${group.modifiers.length ? group.modifiers.map((m) => m.name).join(', ') : '-'}*`);
         if (group.note?.trim()) lines.push(`  ↳ _Catatan Group: "${group.note}"_`);
         lines.push(`  _Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}_`);
+        lines.push(divider);
       });
     } else {
       order.items.forEach((item) => {
