@@ -117,6 +117,23 @@ const cache: CacheHolder = {
 
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes local cache for customer catalogs
 
+// Order documents do not need embedded base64/data-URI product images.
+// Keep normal remote image URLs for compatibility, but remove data URIs from
+// persisted Order Group payloads so a single order cannot exceed Firestore's 1 MiB limit.
+function compactOrderGroupsForFirestore(groups: Order['groups']): Order['groups'] {
+  if (!groups || groups.length === 0) return groups;
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      if (typeof item.productImage === 'string' && item.productImage.startsWith('data:')) {
+        const { productImage: _productImage, ...rest } = item;
+        return rest;
+      }
+      return item;
+    }),
+  }));
+}
+
 /**
  * Recursively cleans an object by stripping any properties with `undefined` values.
  * Firestore throws an "Unsupported field value: undefined" error if any undefined
@@ -644,7 +661,17 @@ export class FirestoreService {
     };
 
     // 3. Save order document directly to Firestore (Allowed for both public customers and staff)
-    const cleanOrder = sanitizeForFirestore(newOrder);
+    // Keep the full in-memory order for the UI, but compact only the persisted
+    // Order Group payload and its legacy mirror to avoid Firestore's 1 MiB document limit.
+    const persistableGroups = compactOrderGroupsForFirestore(canonicalGroups);
+    const persistableOrder: Order = canonicalGroups && canonicalGroups.length > 0
+      ? {
+          ...newOrder,
+          groups: persistableGroups,
+          items: OrderEngine.flattenGroups(persistableGroups || []),
+        }
+      : newOrder;
+    const cleanOrder = sanitizeForFirestore(persistableOrder);
     await setDoc(orderDocRef, cleanOrder);
 
     // 4. Update Daily Analytics document and Promo usage if permissions allow
