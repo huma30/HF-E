@@ -1,21 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Minus, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { Category, ModifierGroup, OrderGroup, OrderGroupItem, OrderGroupModifier, Product } from '../../types';
+import { Category, ModifierGroup, OrderGroup, OrderGroupItem, OrderGroupModifier, Product, Promo } from '../../types';
 import { Modal } from '../common/Modal';
 import { OrderEngine } from '../../services/orderEngine';
+import { PricingEngine } from '../../services/pricingEngine';
 
 interface OrderGroupModalProps {
   isOpen: boolean;
   category: Category | null;
   products: Product[];
   modifierGroups: ModifierGroup[];
+  promos?: Promo[];
   existingGroup?: OrderGroup | null;
   onClose: () => void;
   onSave: (group: OrderGroup) => void;
 }
 
 export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
-  isOpen, category, products, modifierGroups, existingGroup, onClose, onSave,
+  isOpen, category, products, modifierGroups, promos = [], existingGroup, onClose, onSave,
 }) => {
   const categoryProducts = useMemo(
     () => products.filter((p) => p.categoryId === category?.id && p.isActive && p.isAvailable),
@@ -90,6 +92,20 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
         quantity: 1,
       }));
 
+  const previewGroup = OrderEngine.createGroup({
+    id: existingGroup?.id,
+    categoryId: category.id,
+    items: buildItems(),
+    modifiers: buildModifiers(),
+    note,
+    createdAt: existingGroup?.createdAt,
+  });
+
+  const previewMixMatch = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([previewGroup]),
+    promos
+  );
+
   const handleSave = () => {
     const items = buildItems();
     const modifiers = buildModifiers();
@@ -123,15 +139,6 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
     onSave(group);
     onClose();
   };
-
-  const previewGroup = OrderEngine.createGroup({
-    id: existingGroup?.id,
-    categoryId: category.id,
-    items: buildItems(),
-    modifiers: buildModifiers(),
-    note,
-    createdAt: existingGroup?.createdAt,
-  });
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-lg">
@@ -219,10 +226,24 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
         </div>
 
         <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
-          <span className="text-xs text-gray-500">Total grup</span>
-          <span className="font-heading font-extrabold text-[#2E1A47]">
-            Rp {previewGroup.subtotal.toLocaleString('id-ID')}
-          </span>
+          <div className="flex-1">
+            <div className="text-xs text-gray-500">Total grup</div>
+            {previewMixMatch.discount > 0 && (
+              <div className="text-[10px] font-extrabold text-emerald-700">
+                Mix & Match -Rp {previewMixMatch.discount.toLocaleString('id-ID')}
+              </div>
+            )}
+          </div>
+          <div className="text-right">
+            {previewMixMatch.discount > 0 && (
+              <div className="text-[10px] text-gray-400 line-through">
+                Rp {previewGroup.subtotal.toLocaleString('id-ID')}
+              </div>
+            )}
+            <span className="font-heading font-extrabold text-[#2E1A47]">
+              Rp {Math.max(0, previewGroup.subtotal - previewMixMatch.discount).toLocaleString('id-ID')}
+            </span>
+          </div>
           <button type="button" onClick={handleSave} className="clay-button-primary py-2.5 px-5 text-xs font-extrabold">
             {existingGroup ? 'Simpan Perubahan' : 'Tambah ke Keranjang'}
           </button>
