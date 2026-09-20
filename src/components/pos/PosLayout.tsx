@@ -8,6 +8,7 @@ import {
   StoreSettings,
   SelectedModifier,
   Promo,
+  OrderGroup,
 } from '../../types';
 import { PricingEngine } from '../../services/pricingEngine';
 import { PosPaymentModal } from './PosPaymentModal';
@@ -94,9 +95,13 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   }, [products, selectedCategoryId, searchQuery]);
 
   // Calculations
+  const groupedSubtotal = useMemo(
+    () => orderGroups.reduce((sum, group) => sum + OrderEngine.calculateGroupSubtotal(group), 0),
+    [orderGroups]
+  );
   const subtotal = useMemo(() => {
-    return posCart.reduce((sum, item) => sum + item.lineTotal, 0);
-  }, [posCart]);
+    return posCart.reduce((sum, item) => sum + item.lineTotal, 0) + groupedSubtotal;
+  }, [posCart, groupedSubtotal]);
 
   // Automatic Mix & Match quantity-based promotion
   const mixMatchResult = useMemo(() => {
@@ -215,7 +220,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   };
 
   const handleHoldCurrentOrder = () => {
-    if (posCart.length === 0) return;
+    if (posCart.length === 0 && orderGroups.length === 0) return;
     const note = prompt('Beri catatan untuk pesanan ini (cth: Meja 3 / Kakak Baju Biru):') || 'Pesanan Parkir';
     const held: HeldOrder = {
       id: 'hold_' + Date.now(),
@@ -234,6 +239,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   // Recall Order
   const handleRecallOrder = (held: HeldOrder) => {
     setPosCart(held.items);
+    setOrderGroups(held.groups || []);
     setHeldOrders((prev) => prev.filter((h) => h.id !== held.id));
   };
 
@@ -579,7 +585,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
             {/* Pay Button */}
             <button
               id="btn-pos-pay"
-              disabled={posCart.length === 0}
+              disabled={posCart.length === 0 && orderGroups.length === 0}
               onClick={() => setIsPaymentModalOpen(true)}
               className="w-full clay-button-primary py-3 px-4 flex items-center justify-between text-sm font-bold shadow-lg disabled:opacity-50"
             >
@@ -656,9 +662,9 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         items={posCart}
-        subtotal={subtotal + orderGroups.reduce((sum, group) => sum + OrderEngine.calculateGroupSubtotal(group), 0)}
+        subtotal={subtotal}
         discount={discountAmount}
-        total={total + orderGroups.reduce((sum, group) => sum + OrderEngine.calculateGroupSubtotal(group), 0)}
+        total={total}
         cashierName={adminProfile?.name || 'Kasir'}
         settings={settings}
         onPaymentSuccess={(order) => {
