@@ -235,29 +235,39 @@ console.log('\n9. Testing Order Group Domain Engine');
   });
   const splitGroupB = OrderEngine.createGroup({
     categoryId: 'gorengan',
-    items: [makeItem('tahu', 'Tahu', 1500, 1)],
+    items: [makeItem('tahu', 'Tahu', 3000, 1)],
+    modifiers: [],
+  });
+  const nonEligibleGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('cireng', 'Cireng', 4000, 1)],
     modifiers: [],
   });
   const splitAcrossGroups = PricingEngine.calculateMixMatchDiscounts(
-    OrderEngine.flattenGroups([splitGroupA, splitGroupB]),
+    OrderEngine.flattenGroups([splitGroupA, splitGroupB, nonEligibleGroup]),
     [groupPromo]
   );
-  assertEqual(splitAcrossGroups.discount, 500, 'Mix & Match minimum can be reached across multiple Order Groups');
+  assertEqual(splitAcrossGroups.discount, 2000, 'Mix & Match applies across all eligible Order Groups');
   assertEqual(
     (splitAcrossGroups.groupDiscounts?.[splitGroupA.id] || 0) +
       (splitAcrossGroups.groupDiscounts?.[splitGroupB.id] || 0),
-    500,
-    'Cross-group Mix & Match allocations sum exactly to the cart discount'
+    2000,
+    'All eligible Order Group allocations sum exactly to the cart discount'
   );
   assertEqual(
     splitAcrossGroups.groupDiscounts?.[splitGroupA.id],
-    286,
-    'Cross-group Mix & Match allocates Group A proportionally'
+    800,
+    'First eligible Order Group receives its allocated Mix & Match discount'
   );
   assertEqual(
     splitAcrossGroups.groupDiscounts?.[splitGroupB.id],
-    214,
-    'Cross-group Mix & Match allocates Group B proportionally'
+    1200,
+    'Second eligible Order Group receives its allocated Mix & Match discount'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[nonEligibleGroup.id] || 0,
+    0,
+    'Non-eligible Order Group keeps its normal price'
   );
 
   const belowMinimumGroup = OrderEngine.createGroup({
