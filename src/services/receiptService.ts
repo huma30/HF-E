@@ -21,7 +21,6 @@ export class ReceiptService {
         lines.push(`   ↳ Bumbu: ${group.modifiers.map((m) => m.name).join(', ')}`);
       }
       if (group.note?.trim()) lines.push(`   ↳ Catatan Group: "${group.note.trim()}"`);
-      lines.push(`   Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}`);
       if (index < groups.length - 1) lines.push(ReceiptService.DASH_LINE);
     });
   }
@@ -94,10 +93,14 @@ export class ReceiptService {
     }
 
     lines.push(dashLine);
-    lines.push('Subtotal'.padEnd(26, ' ') + `Rp ${order.subtotal.toLocaleString('id-ID')}`.padStart(14, ' '));
-    
+    lines.push('RINGKASAN PEMBAYARAN');
+    lines.push('Subtotal Pesanan'.padEnd(26, ' ') + 'Rp ' + order.subtotal.toLocaleString('id-ID').padStart(14, ' '));
+
     if (order.discount > 0) {
-      lines.push(`Diskon ${order.promoCode ? `(${order.promoCode})` : ''}`.padEnd(26, ' ') + `-Rp ${order.discount.toLocaleString('id-ID')}`.padStart(14, ' '));
+      const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
+      lines.push(discountLabel.padEnd(26, ' ') + '-Rp ' + order.discount.toLocaleString('id-ID').padStart(14, ' '));
+      const afterDiscount = Math.max(0, order.subtotal - order.discount);
+      lines.push('Setelah Potongan'.padEnd(26, ' ') + 'Rp ' + afterDiscount.toLocaleString('id-ID').padStart(14, ' '));
     }
 
     if (order.serviceType === 'DELIVERY') {
@@ -489,10 +492,7 @@ export class ReceiptService {
           currentY += 15;
         }
 
-        ctx.textAlign = 'right';
-        ctx.font = 'bold 11px "Courier New", Courier, monospace';
-        ctx.fillText(`Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
-        currentY += 20;
+        currentY += 5;
 
         if (groupIndex < order.groups!.length - 1) {
           drawLine(currentY, '-');
@@ -548,13 +548,17 @@ export class ReceiptService {
     drawLine(currentY, '-');
     currentY += 18;
 
-    // 5. Total Breakdown
-    drawRow('Subtotal', `Rp ${order.subtotal.toLocaleString('id-ID')}`);
+    // 5. Payment Breakdown
+    ctx.font = '12px "Courier New", Courier, monospace';
+    drawRow('Subtotal Pesanan', 'Rp ' + order.subtotal.toLocaleString('id-ID'));
     if (order.discount > 0) {
-      drawRow(`Diskon ${order.promoCode ? `(${order.promoCode})` : ''}`, `-Rp ${order.discount.toLocaleString('id-ID')}`);
+      const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
+      drawRow(discountLabel, '-Rp ' + order.discount.toLocaleString('id-ID'));
+      const afterDiscount = Math.max(0, order.subtotal - order.discount);
+      drawRow('Setelah Potongan', 'Rp ' + afterDiscount.toLocaleString('id-ID'));
     }
     if (order.serviceType === 'DELIVERY') {
-      drawRow('Ongkos Kirim', `Rp ${order.deliveryFee.toLocaleString('id-ID')}`);
+      drawRow('Ongkos Kirim', 'Rp ' + order.deliveryFee.toLocaleString('id-ID'));
     }
 
     drawLine(currentY, '=');
@@ -795,7 +799,6 @@ export class ReceiptService {
                 `).join('')}
                 <div class="mod-item bold">🧂 Bumbu: ${group.modifiers?.length ? group.modifiers.map(m => m.name).join(', ') : '-'}</div>
                 ${group.note?.trim() ? `<div class="mod-item">↳ Catatan Group: "${group.note.trim()}"</div>` : ''}
-                <div class="row bold"><span>Subtotal Group</span><span>Rp ${group.subtotal.toLocaleString('id-ID')}</span></div>
               </div>
             `).join('')
             : order.items.map(item => `
@@ -810,9 +813,11 @@ export class ReceiptService {
             `).join('')}
 
           <div class="divider"></div>
-          <div class="row"><span>Subtotal</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
+          <div class="bold" style="margin-bottom: 3px;">RINGKASAN PEMBAYARAN</div>
+          <div class="row"><span>Subtotal Pesanan</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
           ${order.discount > 0 ? `
-            <div class="row"><span>Diskon ${order.promoCode ? `(${order.promoCode})` : ''}</span><span>-Rp ${order.discount.toLocaleString('id-ID')}</span></div>
+            <div class="row"><span>Potongan Harga ${order.promoCode ? `(${order.promoCode})` : ''}</span><span>-Rp ${order.discount.toLocaleString('id-ID')}</span></div>
+            <div class="row"><span>Setelah Potongan</span><span>Rp ${Math.max(0, order.subtotal - order.discount).toLocaleString('id-ID')}</span></div>
           ` : ''}
           ${order.serviceType === 'DELIVERY' ? `
             <div class="row"><span>Ongkos Kirim</span><span>Rp ${order.deliveryFee.toLocaleString('id-ID')}</span></div>
