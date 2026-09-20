@@ -113,6 +113,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   }, [mixMatchItems, promos]);
 
   const mixMatchDiscount = mixMatchResult.discount;
+  const mixMatchGroupDiscounts = mixMatchResult.groupDiscounts || {};
   const totalDiscount = mixMatchDiscount + discountAmount;
   const total = Math.max(0, subtotal - totalDiscount);
 
@@ -513,7 +514,16 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
                       </div>
                     ))}
                     {group.modifiers.length > 0 && <div className="text-[10px] text-purple-700 mt-1">Bumbu: {group.modifiers.map((m) => m.name).join(', ')}</div>}
-                    <div className="text-xs font-extrabold text-[#2E1A47] text-right mt-1">Rp {group.subtotal.toLocaleString('id-ID')}</div>
+                    <div className="text-right mt-1">
+                      {mixMatchGroupDiscounts[group.id] > 0 && (
+                        <div className="text-[10px] text-emerald-700 font-extrabold">
+                          Mix & Match -Rp {mixMatchGroupDiscounts[group.id].toLocaleString('id-ID')}
+                        </div>
+                      )}
+                      <div className="text-xs font-extrabold text-[#2E1A47]">
+                        Rp {Math.max(0, group.subtotal - (mixMatchGroupDiscounts[group.id] || 0)).toLocaleString('id-ID')}
+                      </div>
+                    </div>
                   </div>
                 ))}
                 {posCart.map((item) => (
@@ -657,6 +667,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         category={activeOrderGroupCategory}
         products={products}
         modifierGroups={modifierGroups}
+        promos={promos}
         existingGroup={editingOrderGroup}
         onClose={() => { setActiveOrderGroupCategory(null); setEditingOrderGroup(null); }}
         onSave={(group) => {
