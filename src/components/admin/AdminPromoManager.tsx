@@ -32,6 +32,8 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
   // Mix & Match Quantity-Based Pricing Configuration
   const [mixMatchMinQty, setMixMatchMinQty] = useState<number>(2);
   const [mixMatchPromoPrice, setMixMatchPromoPrice] = useState<number>(1500);
+  const [mixMatchRule, setMixMatchRule] = useState<'FULL_MULTIPLES' | 'ALL_ELIGIBLE'>('FULL_MULTIPLES');
+  const [mixMatchBundleQty, setMixMatchBundleQty] = useState<number>(2);
   const [mixMatchProductIds, setMixMatchProductIds] = useState<string[]>([]);
   const [mixMatchCategoryIds, setMixMatchCategoryIds] = useState<string[]>([]);
   const [productSearch, setProductSearch] = useState<string>('');
@@ -49,6 +51,8 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
     setIsActive(true);
     setMixMatchMinQty(2);
     setMixMatchPromoPrice(1500);
+    setMixMatchRule('FULL_MULTIPLES');
+    setMixMatchBundleQty(2);
     // Preselect all products or first few active products if available
     setMixMatchProductIds(products.slice(0, 4).map((p) => p.id));
     setMixMatchCategoryIds([]);
@@ -67,6 +71,8 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
     setIsActive(p.isActive);
     setMixMatchMinQty(p.mixMatchMinQty ?? p.mixMatchQuantity ?? 2);
     setMixMatchPromoPrice(p.mixMatchPromoPrice ?? p.mixMatchDiscountValue ?? p.discountValue ?? p.value ?? 1500);
+    setMixMatchRule(p.mixMatchRule ?? 'FULL_MULTIPLES');
+    setMixMatchBundleQty(Math.max(1, p.mixMatchBundleQty ?? p.mixMatchMinQty ?? p.mixMatchQuantity ?? 2));
     setMixMatchProductIds(p.mixMatchProductIds || []);
     setMixMatchCategoryIds(p.mixMatchCategoryIds || []);
     setProductSearch('');
@@ -118,6 +124,10 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
         alert('Pilih minimal 1 produk eligible untuk promo Mix & Match.');
         return;
       }
+      if (mixMatchBundleQty < 1) {
+        alert('Ukuran paket Mix & Match minimal 1 item.');
+        return;
+      }
     } else if (Number(discountValue) <= 0) {
       alert('Nilai diskon promo harus lebih dari 0.');
       return;
@@ -143,6 +153,8 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
         mixMatchMinQty: discountType === 'MIX_MATCH' ? Number(mixMatchMinQty) : undefined,
         mixMatchQuantity: discountType === 'MIX_MATCH' ? Number(mixMatchMinQty) : undefined, // Alias for backward compatibility
         mixMatchPromoPrice: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : undefined,
+        mixMatchRule: discountType === 'MIX_MATCH' ? mixMatchRule : undefined,
+        mixMatchBundleQty: discountType === 'MIX_MATCH' ? Number(mixMatchBundleQty) : undefined,
         mixMatchDiscountType: discountType === 'MIX_MATCH' ? 'FIXED_PRICE' : undefined,
         mixMatchDiscountValue: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : undefined,
         mixMatchProductIds: discountType === 'MIX_MATCH' ? mixMatchProductIds : undefined,
@@ -374,6 +386,22 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
                   <p className="text-[10px] text-gray-500 mt-0.5">
                     Harga per pcs yang dibayarkan untuk tiap item eligible.
                   </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">Ukuran Paket / Kelipatan:</label>
+                  <input type="number" min="1" value={mixMatchBundleQty} onChange={(e) => setMixMatchBundleQty(Math.max(1, Number(e.target.value) || 1))} className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold" />
+                  <p className="text-[10px] text-gray-500 mt-0.5">Contoh 2: qty 3 = 2 promo + 1 harga normal.</p>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">Aturan Penerapan:</label>
+                  <select value={mixMatchRule} onChange={(e) => setMixMatchRule(e.target.value as 'FULL_MULTIPLES' | 'ALL_ELIGIBLE')} className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold">
+                    <option value="FULL_MULTIPLES">Kelipatan penuh</option>
+                    <option value="ALL_ELIGIBLE">Semua eligible setelah minimum</option>
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Kelipatan penuh direkomendasikan untuk paket genap.</p>
                 </div>
               </div>
 
