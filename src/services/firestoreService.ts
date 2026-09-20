@@ -602,7 +602,8 @@ export class FirestoreService {
     // with the same key targets the same document, so concurrent submissions
     // cannot create two different orders.
     const idempotencyKey = orderInput.idempotencyKey?.trim();
-    const orderDocRef = idempotencyKey
+    const canUseAtomicIdempotency = !!auth.currentUser && !!idempotencyKey;
+    const orderDocRef = canUseAtomicIdempotency
       ? doc(db, 'orders', `idempotent_${idempotencyKey}`)
       : doc(collection(db, 'orders'));
 
@@ -642,21 +643,29 @@ export class FirestoreService {
     let savedOrder: Order;
 
     try {
-      const txResult = await runTransaction(db, async (transaction) => {
-        const existingSnap = await transaction.get(orderDocRef);
-        if (existingSnap.exists()) {
-          return {
-            created: false,
-            order: { id: existingSnap.id, ...existingSnap.data() } as Order,
-          };
-        }
+      if (canUseAtomicIdempotency) {
+        const txResult = await runTransaction(db, async (transaction) => {
+          const existingSnap = await transaction.get(orderDocRef);
+          if (existingSnap.exists()) {
+            return {
+              created: false,
+              order: { id: existingSnap.id, ...existingSnap.data() } as Order,
+            };
+          }
 
-        transaction.set(orderDocRef, cleanOrder);
-        return { created: true, order: newOrder };
-      });
-
-      created = txResult.created;
-      savedOrder = txResult.order;
+          transaction.set(orderDocRef, cleanOrder);
+          return { created: true, order: newOrder };
+        });
+        created = txResult.created;
+        savedOrder = txResult.order;
+      } else {
+        // Public storefront orders stay compatible with anonymous checkout.
+        // The existing UI processing guard prevents ordinary double clicks;
+        // atomic idempotency requires an authenticated identity.
+        await setDoc(orderDocRef, cleanOrder);
+        created = true;
+        savedOrder = newOrder;
+      }
     } catch (orderWriteErr: any) {
       console.error('[HUMA Order] Failed writing orders/' + orderDocRef.id, orderWriteErr);
       const code = orderWriteErr?.code || '';
