@@ -35,6 +35,7 @@ import {
   RewardItem,
   PointRedemption,
 } from '../types';
+import { OrderEngine } from './orderEngine';
 import { errorService } from './errorService';
 import {
   DEFAULT_STORE_SETTINGS,
