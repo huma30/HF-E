@@ -29,7 +29,7 @@ interface CartDrawerProps {
   categories?: Category[];
   modifierGroups?: ModifierGroup[];
   orderGroups?: OrderGroup[];
-  onEditOrderGroup?: (group: OrderGroup) => void;
+  onEditOrderGroup?: (group: OrderGroup, focusModifier?: boolean) => void;
   onDeleteOrderGroup?: (groupId: string) => void;
   onAddOrderGroup?: (category: Category) => void;
 }
@@ -277,8 +277,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           </div>
                           <div className="flex gap-1">
                             {onEditOrderGroup && (
-                              <button type="button" onClick={() => onEditOrderGroup(group)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50">
+                              <button type="button" onClick={() => onEditOrderGroup(group, false)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50">
                                 Edit
+                              </button>
+                              <button type="button" onClick={() => onEditOrderGroup(group, true)} className="text-[10px] font-extrabold px-2 py-1 rounded-lg bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200">
+                                Bumbu
                               </button>
                             )}
                             {onDeleteOrderGroup && (
