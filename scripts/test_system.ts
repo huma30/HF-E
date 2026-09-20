@@ -126,6 +126,47 @@ console.log('\n9. Testing Order Group Domain Engine');
   });
   assert(!OrderEngine.validateGroup(emptyGroup).valid, 'Empty Order Group is rejected');
 
+  const validationGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('uji', 'Item Uji', 2000, 1)],
+    modifiers: [],
+  });
+
+  const requiredCategory = {
+    id: 'gorengan',
+    name: 'Aneka Gorengan',
+    slug: 'gorengan',
+    sortOrder: 1,
+    isActive: true,
+    orderingConfig: {
+      groupingEnabled: true,
+      modifierEnabled: true,
+      modifierScope: 'group',
+      modifierRequired: true,
+      modifierMinSelection: 1,
+      modifierMaxSelection: 2,
+    },
+  } as Category;
+
+  const optionalCategory = {
+    ...requiredCategory,
+    orderingConfig: {
+      ...requiredCategory.orderingConfig,
+      modifierRequired: false,
+      modifierMinSelection: 0,
+    },
+  } as Category;
+
+  assert(
+    !OrderEngine.validateGroup(validationGroup, requiredCategory).valid,
+    'Order Group wajib bumbu ketika modifierRequired=true'
+  );
+
+  assert(
+    OrderEngine.validateGroup(validationGroup, optionalCategory).valid,
+    'Order Group boleh tanpa bumbu ketika modifierRequired=false'
+  );
+
   const legacyOrder: Order = {
     id: 'legacy-1',
     orderNumber: '#HF-LEGACY',
