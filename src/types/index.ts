@@ -197,11 +197,6 @@ export interface Product {
   wholesaleEnabled: boolean;
   wholesaleRules?: WholesaleRule[];
   modifierGroupIds?: string[];
-  /**
-   * Explicit Mix & Match eligibility. Missing/undefined remains backward-compatible
-   * and is treated as eligible by the pricing engine.
-   */
-  mixMatchEligible?: boolean;
   sortOrder?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -226,11 +221,6 @@ export interface CartItem {
   lineTotal: number;
   notes?: string;
   categoryId?: string;
-  /**
-   * Explicit Mix & Match eligibility copied from the source Product when available.
-   * Undefined remains backward-compatible and is treated as eligible.
-   */
-  mixMatchEligible?: boolean;
   /**
    * Canonical relationship to an OrderGroup during the migration to grouped ordering.
    * Kept optional so existing flat cart items remain fully backward-compatible.
