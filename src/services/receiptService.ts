@@ -713,20 +713,33 @@ export class ReceiptService {
           <div class="row bold"><span>ITEM</span><span>TOTAL</span></div>
           <div class="divider"></div>
 
-          ${order.items.map(item => `
-            <div class="item-row">
-              <div class="row">
-                <span>${item.quantity}x ${item.productName}</span>
-                <span>Rp ${item.lineTotal.toLocaleString('id-ID')}</span>
+          ${order.groups && order.groups.length > 0
+            ? order.groups.map((group, index) => `
+              <div class="item-row" style="border-top: 1px dashed #999; padding-top: 5px; margin-top: 6px;">
+                <div class="bold">GROUP ${index + 1}</div>
+                ${group.items.map(item => `
+                  <div class="row">
+                    <span>${item.quantity}x ${item.name}</span>
+                    <span>Rp ${item.subtotal.toLocaleString('id-ID')}</span>
+                  </div>
+                  ${item.selectedModifiers?.length ? `<div class="mod-item">↳ Pilihan: ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>` : ''}
+                  ${item.notes?.trim() ? `<div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>` : ''}
+                `).join('')}
+                <div class="mod-item bold">🧂 Bumbu: ${group.modifiers?.length ? group.modifiers.map(m => m.name).join(', ') : '-'}</div>
+                ${group.note?.trim() ? `<div class="mod-item">↳ Catatan Group: "${group.note.trim()}"</div>` : ''}
+                <div class="row bold"><span>Subtotal Group</span><span>Rp ${group.subtotal.toLocaleString('id-ID')}</span></div>
               </div>
-              ${item.selectedModifiers && item.selectedModifiers.length > 0 ? `
-                <div class="mod-item">↳ ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>
-              ` : ''}
-              ${item.notes && item.notes.trim() ? `
-                <div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>
-              ` : ''}
-            </div>
-          `).join('')}
+            `).join('')
+            : order.items.map(item => `
+              <div class="item-row">
+                <div class="row">
+                  <span>${item.quantity}x ${item.productName}</span>
+                  <span>Rp ${item.lineTotal.toLocaleString('id-ID')}</span>
+                </div>
+                ${item.selectedModifiers?.length ? `<div class="mod-item">↳ Pilihan: ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>` : ''}
+                ${item.notes?.trim() ? `<div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>` : ''}
+              </div>
+            `).join('')}
 
           <div class="divider"></div>
           <div class="row"><span>Subtotal</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
