@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Minus, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Category, ModifierGroup, OrderGroup, OrderGroupItem, OrderGroupModifier, Product } from '../../types';
 import { Modal } from '../common/Modal';
@@ -37,6 +37,14 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
   const [note, setNote] = useState(existingGroup?.note || '');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setQuantities(Object.fromEntries((existingGroup?.items || []).map((item) => [item.productId, item.quantity])));
+    setSelectedModifierIds((existingGroup?.modifiers || []).map((modifier) => modifier.modifierId));
+    setNote(existingGroup?.note || '');
+    setError(null);
+  }, [isOpen, category?.id, existingGroup?.id]);
+
   if (!category) return null;
 
   const setQuantity = (productId: string, next: number) => {
@@ -59,7 +67,16 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
   const buildItems = (): OrderGroupItem[] =>
     categoryProducts
       .filter((product) => (quantities[product.id] || 0) > 0)
-      .map((product) => OrderEngine.buildGroupItem(product, quantities[product.id]));
+      .map((product) => {
+        const existingItem = existingGroup?.items.find((item) => item.productId === product.id);
+        const built = OrderEngine.buildGroupItem(
+          product,
+          quantities[product.id],
+          existingItem?.selectedModifiers || [],
+          existingItem?.notes
+        );
+        return existingItem ? { ...built, id: existingItem.id } : built;
+      });
 
   const buildModifiers = (): OrderGroupModifier[] =>
     (modifierGroup?.items || [])
