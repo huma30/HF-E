@@ -134,19 +134,6 @@ const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes local cache for customer catalo
 // Order documents do not need embedded base64/data-URI product images.
 // Keep normal remote image URLs for compatibility, but remove data URIs from
 // persisted Order Group payloads so a single order cannot exceed Firestore's 1 MiB limit.
-function compactOrderGroupsForFirestore(groups: Order['groups']): Order['groups'] {
-  if (!groups || groups.length === 0) return groups;
-  return groups.map((group) => ({
-    ...group,
-    items: group.items.map((item) => {
-      if (typeof item.productImage === 'string' && item.productImage.startsWith('data:')) {
-        const { productImage: _productImage, ...rest } = item;
-        return rest;
-      }
-      return item;
-    }),
-  }));
-}
 
 /**
  * Recursively cleans an object by stripping any properties with `undefined` values.
