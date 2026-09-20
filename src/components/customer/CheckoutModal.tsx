@@ -274,6 +274,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         items,
         subtotal,
         discount,
+        discountDetails: [
+          ...mixMatchBundles.map((b) => ({
+            label: `Mix & Match: ${b.promoName}`,
+            amount: b.discount,
+          })),
+          ...(appliedPromo && discount - mixMatchDiscount > 0
+            ? [{ label: `Voucher: ${appliedPromo.code}`, amount: discount - mixMatchDiscount }]
+            : []),
+        ].filter((detail) => detail.amount > 0),
         deliveryFee,
         total,
         paymentMethod,
