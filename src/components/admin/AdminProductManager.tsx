@@ -55,6 +55,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
   const [imageUrl, setImageUrl] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   const [isPopular, setIsPopular] = useState(false);
+  const [mixMatchEligible, setMixMatchEligible] = useState(true);
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
   const [wholesaleRules, setWholesaleRules] = useState<WholesaleRule[]>([]);
   const [selectedModifierGroupIds, setSelectedModifierGroupIds] = useState<string[]>([]);
@@ -71,6 +72,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setImageUrl('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80');
     setIsAvailable(true);
     setIsPopular(false);
+    setMixMatchEligible(true);
     setWholesaleEnabled(false);
     setWholesaleRules([]);
     setSelectedModifierGroupIds([]);
@@ -87,6 +89,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
     setImageUrl(p.imageUrl);
     setIsAvailable(p.isAvailable);
     setIsPopular(!!p.isPopular);
+    setMixMatchEligible(p.mixMatchEligible !== false);
     setWholesaleEnabled(!!p.wholesaleEnabled);
     setWholesaleRules(p.wholesaleRules ? [...p.wholesaleRules] : []);
     setSelectedModifierGroupIds(p.modifierGroupIds ? [...p.modifierGroupIds] : []);
@@ -164,6 +167,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
         isAvailable,
         isActive: true,
         isPopular,
+        mixMatchEligible,
         wholesaleEnabled,
         wholesaleRules: wholesaleEnabled ? wholesaleRules : [],
         modifierGroupIds: selectedModifierGroupIds,
@@ -662,6 +666,30 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Mix & Match Eligibility */}
+          <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200/80 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h5 className="font-heading font-bold text-xs text-[#2E1A47]">
+                  Mix & Match Eligible
+                </h5>
+                <p className="text-[11px] text-gray-500">
+                  Produk ini boleh ikut paket Mix & Match otomatis.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMixMatchEligible((prev) => !prev)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  mixMatchEligible ? 'bg-emerald-600 text-white shadow-xs' : 'bg-gray-200 text-gray-600'
+                }`}
+                aria-pressed={mixMatchEligible}
+              >
+                {mixMatchEligible ? 'Eligible' : 'Tidak'}
+              </button>
+            </div>
           </div>
 
           {/* Modifiers Links */}
