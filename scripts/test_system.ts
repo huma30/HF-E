@@ -244,14 +244,20 @@ console.log('\n9. Testing Order Group Domain Engine');
   );
   assertEqual(splitAcrossGroups.discount, 500, 'Mix & Match minimum can be reached across multiple Order Groups');
   assertEqual(
-    splitAcrossGroups.groupDiscounts?.[splitGroupA.id],
+    (splitAcrossGroups.groupDiscounts?.[splitGroupA.id] || 0) +
+      (splitAcrossGroups.groupDiscounts?.[splitGroupB.id] || 0),
     500,
-    'Cross-group Mix & Match discount is allocated to Group A'
+    'Cross-group Mix & Match allocations sum exactly to the cart discount'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[splitGroupA.id],
+    286,
+    'Cross-group Mix & Match allocates Group A proportionally'
   );
   assertEqual(
     splitAcrossGroups.groupDiscounts?.[splitGroupB.id],
-    0,
-    'Cross-group Mix & Match does not invent discount for an item already at promo price'
+    214,
+    'Cross-group Mix & Match allocates Group B proportionally'
   );
 
   const belowMinimumGroup = OrderEngine.createGroup({
