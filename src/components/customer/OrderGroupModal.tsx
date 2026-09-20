@@ -110,6 +110,7 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
     OrderEngine.flattenGroups(previewGroups),
     promos
   );
+  const previewGroupMixMatchDiscount = previewMixMatch.groupDiscounts?.[previewGroup.id] || 0;
 
   const handleSave = () => {
     const items = buildItems();
@@ -233,20 +234,20 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
         <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
           <div className="flex-1">
             <div className="text-xs text-gray-500">Total grup</div>
-            {previewMixMatch.discount > 0 && (
+            {previewGroupMixMatchDiscount > 0 && (
               <div className="text-[10px] font-extrabold text-emerald-700">
-                Mix & Match -Rp {previewMixMatch.discount.toLocaleString('id-ID')}
+                Mix & Match grup -Rp {previewGroupMixMatchDiscount.toLocaleString('id-ID')}
               </div>
             )}
           </div>
           <div className="text-right">
-            {previewMixMatch.discount > 0 && (
+            {previewGroupMixMatchDiscount > 0 && (
               <div className="text-[10px] text-gray-400 line-through">
                 Rp {previewGroup.subtotal.toLocaleString('id-ID')}
               </div>
             )}
             <span className="font-heading font-extrabold text-[#2E1A47]">
-              Rp {Math.max(0, previewGroup.subtotal - previewMixMatch.discount).toLocaleString('id-ID')}
+              Rp {Math.max(0, previewGroup.subtotal - previewGroupMixMatchDiscount).toLocaleString('id-ID')}
             </span>
           </div>
           <button type="button" onClick={handleSave} className="clay-button-primary py-2.5 px-5 text-xs font-extrabold">
