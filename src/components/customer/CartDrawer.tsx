@@ -71,6 +71,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
   const [batchValidationError, setBatchValidationError] = useState<string | null>(null);
+  const hasCartContent = items.length > 0 || orderGroups.length > 0;
 
   // Active category for BatchModifierModal
   const [activeBatchCategory, setActiveBatchCategory] = useState<{
@@ -79,11 +80,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     totalQty: number;
   } | null>(null);
 
-  // Detect which categories in cart require Batch Modifiers
+  // Detect only legacy batch categories; canonical grouped categories validate modifiers per group.
   const batchModifierCategories = useMemo(() => {
     if (!categories || categories.length === 0 || !items || items.length === 0) return [];
     return categories
-      .filter((cat) => cat.batchModifierEnabled && cat.batchModifierGroupId)
+      .filter((cat) => cat.batchModifierEnabled && cat.batchModifierGroupId && !cat.orderingConfig?.groupingEnabled)
       .map((cat) => {
         const matchingItems = items.filter((it) => it.categoryId === cat.id);
         const totalQty = matchingItems.reduce((sum, it) => sum + it.quantity, 0);
@@ -527,7 +528,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
 
               {/* Footer Section */}
-              {items.length > 0 && (
+              {hasCartContent && (
                 <div className="p-4 sm:p-5 border-t border-gray-100 bg-[#FBFBFC] space-y-3">
                   {/* Batch validation error banner */}
                   {batchValidationError && (
