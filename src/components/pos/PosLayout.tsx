@@ -70,6 +70,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   const [batchModifierProduct, setBatchModifierProduct] = useState<Product | null>(null);
   const [activeOrderGroupCategory, setActiveOrderGroupCategory] = useState<Category | null>(null);
   const [editingOrderGroup, setEditingOrderGroup] = useState<OrderGroup | null>(null);
+  const [focusOrderGroupModifier, setFocusOrderGroupModifier] = useState(false);
   const [orderGroups, setOrderGroups] = useState<OrderGroup[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
@@ -670,7 +671,8 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         promos={promos}
         orderGroups={orderGroups}
         existingGroup={editingOrderGroup}
-        onClose={() => { setActiveOrderGroupCategory(null); setEditingOrderGroup(null); }}
+        focusModifier={focusOrderGroupModifier}
+        onClose={() => { setActiveOrderGroupCategory(null); setEditingOrderGroup(null); setFocusOrderGroupModifier(false); }}
         onSave={(group) => {
           if (editingOrderGroup) handleUpdateOrderGroup(group.id, group);
           else handleAddOrderGroup(group);
