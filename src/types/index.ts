@@ -104,6 +104,10 @@ export interface OrderingConfig {
   groupingEnabled: boolean;
   modifierEnabled: boolean;
   modifierScope: ModifierScope;
+  modifierGroupId?: string;
+  modifierRequired?: boolean;
+  modifierMinSelection?: number;
+  modifierMaxSelection?: number;
 }
 
 export interface Category {
