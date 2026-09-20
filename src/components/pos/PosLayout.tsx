@@ -104,9 +104,13 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   }, [posCart, groupedSubtotal]);
 
   // Automatic Mix & Match quantity-based promotion
+  const mixMatchItems = useMemo(
+    () => [...posCart, ...OrderEngine.flattenGroups(orderGroups)],
+    [posCart, orderGroups]
+  );
   const mixMatchResult = useMemo(() => {
-    return PricingEngine.calculateMixMatchDiscounts(posCart, promos);
-  }, [posCart, promos]);
+    return PricingEngine.calculateMixMatchDiscounts(mixMatchItems, promos);
+  }, [mixMatchItems, promos]);
 
   const mixMatchDiscount = mixMatchResult.discount;
   const totalDiscount = mixMatchDiscount + discountAmount;
