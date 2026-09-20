@@ -128,6 +128,7 @@ export class OrderEngine {
         lineTotal: item.subtotal,
         notes: item.notes,
         categoryId: group.categoryId,
+        mixMatchEligible: item.mixMatchEligible,
         orderGroupId: group.id,
       }))
     );
@@ -209,6 +210,7 @@ export class OrderEngine {
       modifiersPrice,
       subtotal,
       notes: notes?.trim() || undefined,
+      mixMatchEligible: product.mixMatchEligible !== false,
     };
   }
 
@@ -271,6 +273,7 @@ export class OrderEngine {
       modifiersPrice: item.modifiersPrice || 0,
       subtotal: item.lineTotal,
       notes: item.notes,
+      mixMatchEligible: item.mixMatchEligible,
     };
   }
 
