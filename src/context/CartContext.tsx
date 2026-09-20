@@ -283,7 +283,6 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           lineTotal,
           notes: safeNotes || undefined,
           categoryId: product.categoryId,
-          mixMatchEligible: product.mixMatchEligible !== false,
         };
         return [...prevItems, newItem];
       }
