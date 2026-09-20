@@ -25,6 +25,7 @@ interface CartContextType {
   discount: number;
   mixMatchDiscount: number;
   mixMatchBundles: MixMatchBundleDetail[];
+  mixMatchGroupDiscounts: Record<string, number>;
   deliveryFee: number;
   total: number;
   appliedPromo: Promo | null;
@@ -191,6 +192,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(pricingItems, availablePromos);
   const mixMatchDiscount = mixMatchResult.discount;
   const mixMatchBundles = mixMatchResult.appliedBundles;
+  const mixMatchGroupDiscounts = mixMatchResult.groupDiscounts || {};
 
   const rawDeliveryFee = serviceType === 'DELIVERY' && selectedDeliveryArea ? selectedDeliveryArea.deliveryFee : 0;
   
@@ -373,6 +375,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       discount,
       mixMatchDiscount,
       mixMatchBundles,
+      mixMatchGroupDiscounts,
       deliveryFee: effectiveDeliveryFee,
       total,
       appliedPromo,
@@ -406,6 +409,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       discount,
       mixMatchDiscount,
       mixMatchBundles,
+      mixMatchGroupDiscounts,
       effectiveDeliveryFee,
       total,
       appliedPromo,
