@@ -22,7 +22,7 @@ import {
   DEFAULT_PROMOS,
   DEFAULT_STORE_SETTINGS,
 } from '../src/data/seedData';
-import { Product, Promo, Order, CartItem } from '../src/types';
+import { Product, Promo, Order, CartItem, Category } from '../src/types';
 
 let testsPassed = 0;
 let testsFailed = 0;
