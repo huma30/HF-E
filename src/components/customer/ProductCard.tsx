@@ -46,6 +46,7 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
     // Order Group categories must be entered through the group selector so
     // multiple products can share one group-level modifier.
     if (isOrderGroupCategory) {
+      onQuickAdd(product);
       return;
     }
 
@@ -64,7 +65,10 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
       id={`product-card-${product.id}`}
       onClick={() => {
         if (!product.isAvailable) return;
-        if (isOrderGroupCategory) return;
+        if (isOrderGroupCategory) {
+          onQuickAdd(product);
+          return;
+        }
         if (isLegacyBatchCategory && !hasRequiredModifiers && standaloneGroupIds.length === 0) {
           onQuickAdd(product);
         } else {
