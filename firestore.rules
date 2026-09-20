@@ -25,46 +25,58 @@ service cloud.firestore {
       );
     }
 
-    // Store configuration and catalog
+    // Public catalog/configuration: storefront can read, only staff can change.
     match /test/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN']);
     }
 
     match /settings/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN']);
     }
-    
+
     match /categories/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN']);
     }
-    
+
     match /products/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
-    
+
     match /modifierGroups/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /promos/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /deliveryAreas/{docId} {
-      allow read, write: if true;
+      allow read: true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /banners/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /platformLinks/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
-    // Orders: Anyone can create an order. Staff and system can read, update, delete.
+    // Orders: anonymous storefront may create; staff can read/update.
     match /orders/{orderId} {
-      allow read, write: if true;
+      allow create: if true;
+      allow read: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
+      allow update: if hasRole(['SUPER_ADMIN', 'MANAGER', 'CASHIER']);
+      allow delete: if hasRole(['SUPER_ADMIN', 'MANAGER']);
     }
 
     match /analyticsDaily/{docId} {
