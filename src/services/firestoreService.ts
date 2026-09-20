@@ -598,24 +598,29 @@ export class FirestoreService {
    * Create an order with idempotency check to guarantee anti-double order
    */
   public static async createOrder(orderInput: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Promise<Order> {
-    // Idempotency is enforced at the order document itself. A repeated request
-    // with the same key targets the same document, so concurrent submissions
-    // cannot create two different orders.
-    const idempotencyKey = orderInput.idempotencyKey?.trim();
-    const canUseAtomicIdempotency = !!auth.currentUser && !!idempotencyKey;
-    const orderDocRef = canUseAtomicIdempotency
-      ? doc(db, 'orders', `idempotent_${idempotencyKey}`)
-      : doc(collection(db, 'orders'));
-
-    let orderNumber: string;
-    try {
-      ({ orderNumber } = await this.generateOrderNumber());
-    } catch (err) {
-      console.warn('[HUMA] Order number generation fallback:', err);
-      orderNumber = `#HF-${Date.now()}`;
+    // 1. Check idempotency if provided
+    if (orderInput.idempotencyKey) {
+      try {
+        const checkQ = query(
+          collection(db, 'orders'),
+          where('idempotencyKey', '==', orderInput.idempotencyKey),
+          limit(1)
+        );
+        const existingSnap = await getDocs(checkQ);
+        if (!existingSnap.empty) {
+          return { id: existingSnap.docs[0].id, ...existingSnap.docs[0].data() } as Order;
+        }
+      } catch (err) {
+        console.warn('[HUMA] Idempotency check skipped:', err);
+      }
     }
 
+    // 2. Generate unique order number
+    const { orderNumber } = await this.generateOrderNumber();
+    const orderDocRef = doc(collection(db, 'orders'));
+    const orderId = orderDocRef.id;
     const createdAt = new Date().toISOString();
+
     const canonicalGroups = orderInput.groups && orderInput.groups.length > 0
       ? orderInput.groups.map((group) => OrderEngine.updateGroup(group, {
           categoryId: group.categoryId,
@@ -627,64 +632,24 @@ export class FirestoreService {
 
     const newOrder: Order = {
       ...orderInput,
-      id: orderDocRef.id,
+      id: orderId,
       orderNumber,
       createdAt,
       status: orderInput.status || 'PENDING',
       groups: canonicalGroups,
+      // Keep flat items for existing reports/receipts/history consumers.
       items: canonicalGroups && canonicalGroups.length > 0
         ? OrderEngine.flattenGroups(canonicalGroups)
         : orderInput.items,
     };
 
+    // 3. Save order document directly to Firestore (Allowed for both public customers and staff)
     const cleanOrder = sanitizeForFirestore(newOrder);
+    await setDoc(orderDocRef, cleanOrder);
 
-    let created = false;
-    let savedOrder: Order;
-
+    // 4. Update Daily Analytics document and Promo usage if permissions allow
     try {
-      if (canUseAtomicIdempotency) {
-        const txResult = await runTransaction(db, async (transaction) => {
-          const existingSnap = await transaction.get(orderDocRef);
-          if (existingSnap.exists()) {
-            return {
-              created: false,
-              order: { id: existingSnap.id, ...existingSnap.data() } as Order,
-            };
-          }
-
-          transaction.set(orderDocRef, cleanOrder);
-          return { created: true, order: newOrder };
-        });
-        created = txResult.created;
-        savedOrder = txResult.order;
-      } else {
-        // Public storefront orders stay compatible with anonymous checkout.
-        // The existing UI processing guard prevents ordinary double clicks;
-        // atomic idempotency requires an authenticated identity.
-        await setDoc(orderDocRef, cleanOrder);
-        created = true;
-        savedOrder = newOrder;
-      }
-    } catch (orderWriteErr: any) {
-      console.error('[HUMA Order] Failed writing orders/' + orderDocRef.id, orderWriteErr);
-      const code = orderWriteErr?.code || '';
-      const detail = orderWriteErr?.message || 'Unknown Firestore error';
-      throw new Error(
-        `Gagal menyimpan pesanan (orders/${orderDocRef.id}). ${code ? `[${code}] ` : ''}${detail}`
-      );
-    }
-
-    // Only new transactions update side effects. Replayed idempotent requests
-    // return the already-persisted order without incrementing counters again.
-    if (!created) {
-      return savedOrder;
-    }
-
-    // Daily analytics is intentionally best-effort so a secondary aggregation
-    // permission/configuration problem never hides a successfully saved order.
-    try {
-      const today = createdAt.substring(0, 10);
+      const today = createdAt.substring(0, 10); // YYYY-MM-DD
       const analyticsDocRef = doc(db, 'analyticsDaily', today);
       await setDoc(
         analyticsDocRef,
@@ -703,6 +668,7 @@ export class FirestoreService {
       console.warn('[HUMA] Skipping daily analytics aggregation:', analyticsErr);
     }
 
+    // Increment promo usage if applicable
     if (newOrder.promoCode) {
       try {
         const promoQuery = query(collection(db, 'promos'), where('code', '==', newOrder.promoCode), limit(1));
@@ -715,6 +681,7 @@ export class FirestoreService {
       }
     }
 
+    // If created as COMPLETED (e.g., instant POS cashier payment), award loyalty points
     if (newOrder.status === 'COMPLETED') {
       try {
         const settings = await this.getStoreSettings();
