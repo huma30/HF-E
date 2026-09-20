@@ -34,25 +34,33 @@ export class WhatsAppService {
     lines.push(divider);
     lines.push('🛒 *RINCIAN PESANAN:*');
 
-    order.items.forEach((item) => {
-      const itemSubtotal = item.lineTotal.toLocaleString('id-ID');
-      lines.push(`• *${item.quantity}x ${item.productName}* — Rp ${itemSubtotal}`);
-      
-      // Selected modifiers
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
-        const modTexts = item.selectedModifiers.map(
-          (m) => `${m.item.name}${m.item.price > 0 ? ` (+Rp ${m.item.price.toLocaleString('id-ID')})` : ''}`
-        );
-        lines.push(`  ↳ _Pilihan: ${modTexts.join(', ')}_`);
-      }
+    if (order.groups && order.groups.length > 0) {
+      order.groups.forEach((group, index) => {
+        lines.push(`*GROUP ${index + 1}*`);
+        group.items.forEach((item) => {
+          lines.push(`• *${item.quantity}x ${item.name}* — Rp ${item.subtotal.toLocaleString('id-ID')}`);
+          if (item.selectedModifiers?.length) {
+            lines.push(`  ↳ _Pilihan: ${item.selectedModifiers.map((m) => m.item.name).join(', ')}_`);
+          }
+          if (item.notes?.trim()) lines.push(`  ↳ _Catatan: "${item.notes}"_`);
+        });
+        if (group.modifiers.length) lines.push(`  🧂 _Bumbu: ${group.modifiers.map((m) => m.name).join(', ')}_`);
+        if (group.note?.trim()) lines.push(`  ↳ _Catatan Group: "${group.note}"_`);
+        lines.push(`  _Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}_`);
+      });
+    } else {
+      order.items.forEach((item) => {
+        const itemSubtotal = item.lineTotal.toLocaleString('id-ID');
+        lines.push(`• *${item.quantity}x ${item.productName}* — Rp ${itemSubtotal}`);
+        if (item.selectedModifiers?.length) {
+          const modTexts = item.selectedModifiers.map((m) => `${m.item.name}${m.item.price > 0 ? ` (+Rp ${m.item.price.toLocaleString('id-ID')})` : ''}`);
+          lines.push(`  ↳ _Pilihan: ${modTexts.join(', ')}_`);
+        }
+        if (item.notes?.trim()) lines.push(`  ↳ _Catatan: "${item.notes}"_`);
+      });
+    }
 
-      // Notes per item
-      if (item.notes && item.notes.trim()) {
-        lines.push(`  ↳ _Catatan: "${item.notes}"_`);
-      }
-    });
-
-    // Batch Modifiers (e.g. Bumbu Gorengan)
+    // Legacy Batch Modifiers (only for old orders without groups)
     if (order.batchModifiers && order.batchModifiers.length > 0) {
       lines.push(divider);
       lines.push('🧂 *PILIHAN BUMBU / RASA:*');
