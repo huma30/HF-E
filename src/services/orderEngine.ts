@@ -37,17 +37,14 @@ const nowIso = () => new Date().toISOString();
 
 export class OrderEngine {
   /**
-   * Resolve the effective grouped-order configuration.
-   * Legacy batch settings are intentionally supported during migration.
+   * Resolve the explicit new Order Group configuration.
+   * Legacy Batch Modifier remains a separate feature so existing categories
+   * keep their previous behavior until an admin explicitly enables Order Group.
    */
   public static getOrderingConfig(category?: Category | null) {
-    const config = category?.orderingConfig;
-    if (config) return config;
-
-    const legacyEnabled = category?.batchModifierEnabled === true;
-    return {
-      groupingEnabled: legacyEnabled,
-      modifierEnabled: legacyEnabled && !!category?.batchModifierGroupId,
+    return category?.orderingConfig || {
+      groupingEnabled: false,
+      modifierEnabled: false,
       modifierScope: 'group' as const,
     };
   }
