@@ -589,6 +589,7 @@ function MainApp() {
         category={activeOrderGroupCategory}
         products={products}
         modifierGroups={modifierGroups}
+        promos={promos}
         existingGroup={editingOrderGroup}
         onClose={() => {
           setActiveOrderGroupCategory(null);
