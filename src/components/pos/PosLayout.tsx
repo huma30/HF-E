@@ -662,6 +662,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         items={posCart}
+        groups={orderGroups}
         subtotal={subtotal}
         discount={discountAmount}
         total={total}
