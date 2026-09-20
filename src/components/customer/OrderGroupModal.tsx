@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, Minus, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Category, ModifierGroup, OrderGroup, OrderGroupItem, OrderGroupModifier, Product, Promo } from '../../types';
 import { Modal } from '../common/Modal';
@@ -12,13 +12,14 @@ interface OrderGroupModalProps {
   modifierGroups: ModifierGroup[];
   promos?: Promo[];
   orderGroups?: OrderGroup[];
+  focusModifier?: boolean;
   existingGroup?: OrderGroup | null;
   onClose: () => void;
   onSave: (group: OrderGroup) => void;
 }
 
 export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
-  isOpen, category, products, modifierGroups, promos = [], orderGroups = [], existingGroup, onClose, onSave,
+  isOpen, category, products, modifierGroups, promos = [], orderGroups = [], focusModifier = false, existingGroup, onClose, onSave,
 }) => {
   const categoryProducts = useMemo(
     () => products.filter((p) => p.categoryId === category?.id && p.isActive && p.isAvailable),
@@ -39,6 +40,7 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
   );
   const [note, setNote] = useState(existingGroup?.note || '');
   const [error, setError] = useState<string | null>(null);
+  const modifierSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,7 +48,10 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
     setSelectedModifierIds((existingGroup?.modifiers || []).map((modifier) => modifier.modifierId));
     setNote(existingGroup?.note || '');
     setError(null);
-  }, [isOpen, category?.id, existingGroup?.id]);
+    if (focusModifier) {
+      window.setTimeout(() => modifierSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    }
+  }, [isOpen, category?.id, existingGroup?.id, focusModifier]);
 
   if (!category) return null;
 
@@ -135,6 +140,7 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
     }
     if (config.modifierEnabled && required && modifiers.length < Math.max(1, minSelections)) {
       setError('Pilih minimal ' + Math.max(1, minSelections) + ' pilihan pada ' + (modifierGroup?.name || 'bumbu') + '.');
+      window.setTimeout(() => modifierSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
       return;
     }
     if (modifiers.length > maxSelections) {
@@ -189,7 +195,7 @@ export const OrderGroupModal: React.FC<OrderGroupModalProps> = ({
           })}
 
           {config.modifierEnabled && modifierGroup && (
-            <div className="p-3 bg-purple-50/70 rounded-2xl border border-purple-100">
+            <div ref={modifierSectionRef} id="order-group-modifiers" className="p-3 bg-purple-50/70 rounded-2xl border border-purple-100">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-[#FF4500]" />
