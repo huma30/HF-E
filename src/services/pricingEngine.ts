@@ -58,20 +58,19 @@ export class PricingEngine {
   }
 
   /**
-   * Calculate Mix & Match Quantity-Based Pricing discounts
-   * 
-   * CONTRACT SPECIFICATION:
-   * eligibleQuantity = total quantity of all eligible products in cart/order
-   * If eligibleQuantity >= minQuantity:
-   *   price of each eligible product = promoPricePerItem
-   * If eligibleQuantity < minQuantity:
-   *   price of each eligible product = normal price
-   * Non-eligible products:
-   *   price remains normal price
-   * 
-   * Strict anti-bundle & anti-multiple rule:
-   * BUKAN paket kelipatan (e.g. min 2 -> 2 items, 10 items, or 50 items ALL get promo price per item).
-   * Does NOT overwrite base product price in database.
+   * Calculate Mix & Match Quantity-Based Pricing discounts.
+   *
+   * Default rule:
+   * - Minimum eligible quantity must be reached.
+   * - Only complete bundles (multiples of mixMatchBundleQty) receive promo price.
+   * - Leftover eligible units stay at normal price.
+   * - Eligibility is calculated across the whole transaction, including every Order Group.
+   *
+   * Legacy compatibility:
+   * - mixMatchRule='ALL_ELIGIBLE' preserves the previous behavior where all
+   *   eligible units receive promo once the minimum quantity is reached.
+   *
+   * The product's base price in the catalog is never overwritten.
    */
   public static calculateMixMatchDiscounts(
     items: CartItem[],
