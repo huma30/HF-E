@@ -254,7 +254,6 @@ export interface OrderGroupItem {
   modifiersPrice: number;
   subtotal: number;
   notes?: string;
-  mixMatchEligible?: boolean;
 }
 
 export interface OrderGroup {
