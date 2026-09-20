@@ -228,6 +228,31 @@ console.log('\n9. Testing Order Group Domain Engine');
     1000,
     'Mix & Match discount is synchronized to the Order Group'
   );
+  const splitGroupA = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('bakwan', 'Bakwan', 2000, 1)],
+    modifiers: [],
+  });
+  const splitGroupB = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('tahu', 'Tahu', 1500, 1)],
+    modifiers: [],
+  });
+  const splitAcrossGroups = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([splitGroupA, splitGroupB]),
+    [groupPromo]
+  );
+  assertEqual(splitAcrossGroups.discount, 500, 'Mix & Match minimum can be reached across multiple Order Groups');
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[splitGroupA.id],
+    500,
+    'Cross-group Mix & Match discount is allocated to Group A'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[splitGroupB.id],
+    0,
+    'Cross-group Mix & Match does not invent discount for an item already at promo price'
+  );
 
   const belowMinimumGroup = OrderEngine.createGroup({
     categoryId: 'gorengan',
