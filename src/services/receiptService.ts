@@ -97,8 +97,15 @@ export class ReceiptService {
     lines.push('Subtotal Pesanan'.padEnd(26, ' ') + 'Rp ' + order.subtotal.toLocaleString('id-ID').padStart(14, ' '));
 
     if (order.discount > 0) {
-      const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
-      lines.push(discountLabel.padEnd(26, ' ') + '-Rp ' + order.discount.toLocaleString('id-ID').padStart(14, ' '));
+      if (order.discountDetails?.length) {
+        order.discountDetails.forEach((detail) => {
+          lines.push(`  ↳ ${detail.label}`.padEnd(26, ' ') + '-Rp ' + detail.amount.toLocaleString('id-ID').padStart(14, ' '));
+        });
+      } else {
+        const discountLabel = 'Potongan Harga' + (order.promoCode ? ` (${order.promoCode})` : '');
+        lines.push(discountLabel.padEnd(26, ' ') + '-Rp ' + order.discount.toLocaleString('id-ID').padStart(14, ' '));
+      }
+      lines.push('Total Potongan'.padEnd(26, ' ') + '-Rp ' + order.discount.toLocaleString('id-ID').padStart(14, ' '));
       const afterDiscount = Math.max(0, order.subtotal - order.discount);
       lines.push('Setelah Potongan'.padEnd(26, ' ') + 'Rp ' + afterDiscount.toLocaleString('id-ID').padStart(14, ' '));
     }
