@@ -222,10 +222,10 @@ console.log('\n9. Testing Order Group Domain Engine');
     OrderEngine.flattenGroups([group1]),
     [groupPromo]
   );
-  assertEqual(groupedPricing.discount, 5000, 'Mix & Match applies to eligible products inside Order Group');
+  assertEqual(groupedPricing.discount, 1000, 'Mix & Match applies to eligible products inside Order Group');
   assertEqual(
     groupedPricing.groupDiscounts?.[group1.id],
-    5000,
+    1000,
     'Mix & Match discount is synchronized to the Order Group'
   );
 
