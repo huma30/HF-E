@@ -112,6 +112,30 @@ export class OrderEngine {
     return groups.reduce((sum, group) => sum + this.calculateGroupSubtotal(group), 0);
   }
 
+  /**
+   * Keep the legacy flat item representation synchronized for existing
+   * reports/receipts while groups[] remains the canonical relationship.
+   */
+  public static flattenGroups(groups: OrderGroup[]): CartItem[] {
+    return groups.flatMap((group) =>
+      group.items.map((item) => ({
+        cartItemId: item.id,
+        productId: item.productId,
+        productName: item.name,
+        productImage: item.productImage || '',
+        basePrice: item.basePrice,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        selectedModifiers: item.selectedModifiers || [],
+        modifiersPrice: item.modifiersPrice || 0,
+        lineTotal: item.subtotal,
+        notes: item.notes,
+        categoryId: group.categoryId,
+        orderGroupId: group.id,
+      }))
+    );
+  }
+
   public static calculateOrderTotal(
     groups: OrderGroup[],
     discount = 0,
