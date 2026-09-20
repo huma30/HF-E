@@ -603,7 +603,7 @@ export class FirestoreService {
     // cannot create two different orders.
     const idempotencyKey = orderInput.idempotencyKey?.trim();
     const orderDocRef = idempotencyKey
-      ? doc(db, 'orders', \`idempotent_\${idempotencyKey}\`)
+      ? doc(db, 'orders', `idempotent_${idempotencyKey}`)
       : doc(collection(db, 'orders'));
 
     let orderNumber: string;
@@ -611,7 +611,7 @@ export class FirestoreService {
       ({ orderNumber } = await this.generateOrderNumber());
     } catch (err) {
       console.warn('[HUMA] Order number generation fallback:', err);
-      orderNumber = \`#HF-\${Date.now()}\`;
+      orderNumber = `#HF-${Date.now()}`;
     }
 
     const createdAt = new Date().toISOString();
@@ -662,7 +662,7 @@ export class FirestoreService {
       const code = orderWriteErr?.code || '';
       const detail = orderWriteErr?.message || 'Unknown Firestore error';
       throw new Error(
-        \`Gagal menyimpan pesanan (orders/\${orderDocRef.id}). \${code ? \`[\${code}] \` : ''}\${detail}\`
+        `Gagal menyimpan pesanan (orders/${orderDocRef.id}). ${code ? `[${code}] ` : ''}${detail}`
       );
     }
 
