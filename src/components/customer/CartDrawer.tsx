@@ -55,6 +55,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     discount,
     mixMatchDiscount,
     mixMatchBundles,
+    mixMatchGroupDiscounts,
     deliveryFee,
     total,
     appliedPromo,
