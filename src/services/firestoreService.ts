@@ -63,6 +63,20 @@ interface CacheHolder {
 
 const PERSISTENT_CATALOG_KEY = 'huma_catalog_persistent_v1';
 
+function compactOrderGroupsForFirestore(groups: Order['groups']): Order['groups'] {
+  if (!groups || groups.length === 0) return groups;
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      if (typeof item.productImage === 'string' && item.productImage.startsWith('data:')) {
+        const { productImage: _productImage, ...rest } = item;
+        return rest;
+      }
+      return item;
+    }),
+  }));
+}
+
 function readStoredCatalog(): Partial<CacheHolder> {
   if (typeof window === 'undefined') return {};
   try {
