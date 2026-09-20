@@ -77,6 +77,7 @@ function MainApp() {
   const [activeModifierProduct, setActiveModifierProduct] = useState<Product | null>(null);
   const [activeOrderGroupCategory, setActiveOrderGroupCategory] = useState<Category | null>(null);
   const [editingOrderGroup, setEditingOrderGroup] = useState<OrderGroup | null>(null);
+  const [focusOrderGroupModifier, setFocusOrderGroupModifier] = useState(false);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrderSuccessOpen, setIsOrderSuccessOpen] = useState(false);
@@ -592,9 +593,11 @@ function MainApp() {
         promos={promos}
         orderGroups={orderGroups}
         existingGroup={editingOrderGroup}
+        focusModifier={focusOrderGroupModifier}
         onClose={() => {
           setActiveOrderGroupCategory(null);
           setEditingOrderGroup(null);
+          setFocusOrderGroupModifier(false);
         }}
         onSave={(group) => {
           if (editingOrderGroup) {
@@ -627,10 +630,11 @@ function MainApp() {
         categories={categories}
         modifierGroups={modifierGroups}
         orderGroups={orderGroups}
-        onEditOrderGroup={(group) => {
+        onEditOrderGroup={(group, focusModifier = false) => {
           const category = categories.find((c) => c.id === group.categoryId);
           if (category) {
             setEditingOrderGroup(group);
+            setFocusOrderGroupModifier(focusModifier);
             setActiveOrderGroupCategory(category);
           }
         }}
