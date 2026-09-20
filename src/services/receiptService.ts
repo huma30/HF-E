@@ -120,7 +120,7 @@ export class ReceiptService {
     lines.push(`Pembayaran  : ${paymentLabel}`);
 
     if (order.amountPaid) {
-      lines.push(`Bayar       : Rp ${order.amountPaid.toLocaleString('id-ID')}`);
+      lines.push(`Uang Diterima: Rp ${order.amountPaid.toLocaleString('id-ID')}`);
       lines.push(`Kembali     : Rp ${(order.change || 0).toLocaleString('id-ID')}`);
     }
 
@@ -585,7 +585,7 @@ export class ReceiptService {
 
     drawRow('Metode Bayar', paymentLabel);
     if (order.amountPaid) {
-      drawRow('Diterima', `Rp ${order.amountPaid.toLocaleString('id-ID')}`);
+      drawRow('Uang Diterima', `Rp ${order.amountPaid.toLocaleString('id-ID')}`);
       drawRow('Kembali', `Rp ${(order.change || 0).toLocaleString('id-ID')}`);
     }
 
@@ -832,7 +832,7 @@ export class ReceiptService {
 
           <div class="row"><span>Metode Bayar:</span><span>${paymentLabel}</span></div>
           ${order.amountPaid ? `
-            <div class="row"><span>Diterima:</span><span>Rp ${order.amountPaid.toLocaleString('id-ID')}</span></div>
+            <div class="row"><span>Uang Diterima:</span><span>Rp ${order.amountPaid.toLocaleString('id-ID')}</span></div>
             <div class="row"><span>Kembali:</span><span>Rp ${(order.change || 0).toLocaleString('id-ID')}</span></div>
           ` : ''}
 
