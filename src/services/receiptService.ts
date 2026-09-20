@@ -326,9 +326,20 @@ export class ReceiptService {
 
     // Estimate total canvas height
     const baseLineHeight = 22;
-    const itemCount = order.items.length;
-    const modCount = order.items.reduce((acc, i) => acc + (i.selectedModifiers?.length || 0), 0);
-    const estimatedLines = 26 + itemCount * 2 + modCount;
+    const itemCount = order.groups?.length
+      ? order.groups.reduce((sum, group) => sum + group.items.length, 0)
+      : order.items.length;
+    const groupCount = order.groups?.length || 0;
+    const modCount = order.groups?.length
+      ? order.groups.reduce(
+          (sum, group) =>
+            sum +
+            group.items.reduce((n, item) => n + (item.selectedModifiers?.length || 0), 0) +
+            (group.modifiers?.length || 0),
+          0
+        )
+      : order.items.reduce((acc, i) => acc + (i.selectedModifiers?.length || 0), 0);
+    const estimatedLines = 30 + itemCount * 3 + modCount + groupCount * 5;
     const totalHeight = padding * 2 + logoHeight + estimatedLines * baseLineHeight + (settings?.autoCutEnabled ? 40 : 0);
 
     // Render at 2x pixel ratio for sharp display & mobile clarity
@@ -431,31 +442,88 @@ export class ReceiptService {
     currentY += 18;
 
     ctx.font = '12px "Courier New", Courier, monospace';
-    order.items.forEach((item) => {
-      ctx.textAlign = 'left';
-      const itemTitle = `${item.quantity}x ${item.productName}`;
-      ctx.fillText(itemTitle, padding, currentY);
-      ctx.textAlign = 'right';
-      ctx.fillText(`Rp ${item.lineTotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
-      currentY += 16;
-
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
+    if (order.groups && order.groups.length > 0) {
+      order.groups.forEach((group, groupIndex) => {
         ctx.textAlign = 'left';
-        ctx.font = '11px "Courier New", Courier, monospace';
-        const modNames = item.selectedModifiers.map((m) => m.item.name).join(', ');
-        ctx.fillText(`   ↳ ${modNames}`, padding, currentY);
-        currentY += 15;
+        ctx.font = 'bold 12px "Courier New", Courier, monospace';
+        ctx.fillText(`GROUP ${groupIndex + 1}`, padding, currentY);
+        currentY += 16;
         ctx.font = '12px "Courier New", Courier, monospace';
-      }
 
-      if (item.notes && item.notes.trim()) {
+        group.items.forEach((item) => {
+          ctx.textAlign = 'left';
+          ctx.fillText(`${item.quantity}x ${item.name}`, padding, currentY);
+          ctx.textAlign = 'right';
+          ctx.fillText(`Rp ${item.subtotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
+          currentY += 16;
+
+          if (item.selectedModifiers?.length) {
+            ctx.textAlign = 'left';
+            ctx.font = '11px "Courier New", Courier, monospace';
+            ctx.fillText(`   ↳ Pilihan: ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`, padding, currentY);
+            currentY += 15;
+            ctx.font = '12px "Courier New", Courier, monospace';
+          }
+
+          if (item.notes?.trim()) {
+            ctx.textAlign = 'left';
+            ctx.font = '11px "Courier New", Courier, monospace';
+            ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+            currentY += 15;
+            ctx.font = '12px "Courier New", Courier, monospace';
+          }
+        });
+
         ctx.textAlign = 'left';
-        ctx.font = '11px "Courier New", Courier, monospace';
-        ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+        ctx.font = 'bold 11px "Courier New", Courier, monospace';
+        ctx.fillText(
+          `   BUMBU: ${group.modifiers?.length ? group.modifiers.map((m) => m.name).join(', ') : '-'}`,
+          padding,
+          currentY
+        );
         currentY += 15;
-        ctx.font = '12px "Courier New", Courier, monospace';
-      }
-    });
+
+        if (group.note?.trim()) {
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   Catatan Group: "${group.note.trim()}"`, padding, currentY);
+          currentY += 15;
+        }
+
+        ctx.textAlign = 'right';
+        ctx.font = 'bold 11px "Courier New", Courier, monospace';
+        ctx.fillText(`Subtotal Group: Rp ${group.subtotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
+        currentY += 20;
+
+        if (groupIndex < order.groups!.length - 1) {
+          drawLine(currentY, '-');
+          currentY += 15;
+        }
+      });
+    } else {
+      order.items.forEach((item) => {
+        ctx.textAlign = 'left';
+        ctx.fillText(`${item.quantity}x ${item.productName}`, padding, currentY);
+        ctx.textAlign = 'right';
+        ctx.fillText(`Rp ${item.lineTotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
+        currentY += 16;
+
+        if (item.selectedModifiers?.length) {
+          ctx.textAlign = 'left';
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   ↳ Pilihan: ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`, padding, currentY);
+          currentY += 15;
+          ctx.font = '12px "Courier New", Courier, monospace';
+        }
+
+        if (item.notes?.trim()) {
+          ctx.textAlign = 'left';
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+          currentY += 15;
+          ctx.font = '12px "Courier New", Courier, monospace';
+        }
+      });
+    }
 
     if (order.batchModifiers && order.batchModifiers.length > 0) {
       drawLine(currentY, '-');
