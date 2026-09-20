@@ -234,14 +234,16 @@ console.log('\n9. Testing Order Group Domain Engine');
     createdAt: new Date().toISOString(),
     customer: { name: 'Tester', whatsapp: '08123456789' },
     serviceType: 'TAKEAWAY',
-    subtotal: 50000, discount: 0, deliveryFee: 0, total: 50000,
-    paymentMethod: 'CASH', items: [], groups: [
+    subtotal: 50000, discount: 9500, deliveryFee: 0, total: 40500,
+    paymentMethod: 'CASH', amountPaid: 50000, change: 9500, items: [], groups: [
       { id: 'g1', categoryId: 'gorengan', items: [makeItem('sosis','Sosis',20000,1), makeItem('cikua','Cikua',15000,1)], modifiers: [{ modifierId:'saos', name:'Saos', groupId:'bumbu', groupName:'Bumbu', price:0, quantity:1 }], subtotal:35000, note:'' },
       { id: 'g2', categoryId: 'gorengan', items: [makeItem('dumpling','Dumpling',15000,1)], modifiers: [{ modifierId:'pedas', name:'Pedas', groupId:'bumbu', groupName:'Bumbu', price:0, quantity:1 }], subtotal:15000, note:'' }
     ]
   } as any;
   const receiptText = ReceiptService.formatTextReceipt(receiptOrder);
   assert(receiptText.includes('GROUP 1') && receiptText.includes('Sosis') && receiptText.includes('Cikua') && receiptText.includes('Bumbu: Saos'), 'Receipt Group formatting includes bumbu');
+  assert(receiptText.includes('Subtotal Semua Pesanan') && receiptText.includes('Total Potongan') && receiptText.includes('Uang Diterima') && receiptText.includes('Kembali'), 'Receipt shows whole-note payment summary');
+  assert(!receiptText.includes('Subtotal Group') && !receiptText.includes('Setelah Potongan') && !receiptText.includes('Mix & Match:'), 'Receipt does not show per-group subtotal or discount details');
   const waText = WhatsAppService.formatOrderMessage(receiptOrder);
   assert(waText.includes('GROUP 1') && waText.includes('Sosis') && waText.includes('Cikua') && waText.includes('Bumbu: Saos') && waText.includes('GROUP 2') && waText.includes('Bumbu: Pedas'), 'WhatsApp Group formatting includes bumbu');
 
