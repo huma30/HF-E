@@ -4,6 +4,7 @@ import { CartProvider, useCart } from './context/CartContext';
 import {
   Product,
   Category,
+  OrderGroup,
   ModifierGroup,
   Order,
   Promo,
@@ -52,7 +53,7 @@ function MainApp() {
   const { currentUser, role, adminProfile } = useAuth();
   const isAuthenticated = !!currentUser || !!adminProfile;
   const user = adminProfile;
-  const { addItem, addOrderGroup, setAvailablePromos } = useCart();
+  const { addItem, addOrderGroup, updateOrderGroup, removeOrderGroup, orderGroups, setAvailablePromos } = useCart();
 
   // Primary view mode
   const [viewMode, setViewMode] = useState<ViewMode>('STOREFRONT');
@@ -75,6 +76,7 @@ function MainApp() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [activeModifierProduct, setActiveModifierProduct] = useState<Product | null>(null);
   const [activeOrderGroupCategory, setActiveOrderGroupCategory] = useState<Category | null>(null);
+  const [editingOrderGroup, setEditingOrderGroup] = useState<OrderGroup | null>(null);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrderSuccessOpen, setIsOrderSuccessOpen] = useState(false);
@@ -582,8 +584,18 @@ function MainApp() {
         category={activeOrderGroupCategory}
         products={products}
         modifierGroups={modifierGroups}
-        onClose={() => setActiveOrderGroupCategory(null)}
-        onSave={addOrderGroup}
+        existingGroup={editingOrderGroup}
+        onClose={() => {
+          setActiveOrderGroupCategory(null);
+          setEditingOrderGroup(null);
+        }}
+        onSave={(group) => {
+          if (editingOrderGroup) {
+            updateOrderGroup(group.id, group);
+          } else {
+            addOrderGroup(group);
+          }
+        }}
       />
 
       {/* Customer Rewards & Points Modal (Kotak Hadiah) */}
@@ -607,6 +619,16 @@ function MainApp() {
         settings={settings}
         categories={categories}
         modifierGroups={modifierGroups}
+        orderGroups={orderGroups}
+        onEditOrderGroup={(group) => {
+          const category = categories.find((c) => c.id === group.categoryId);
+          if (category) {
+            setEditingOrderGroup(group);
+            setActiveOrderGroupCategory(category);
+          }
+        }}
+        onDeleteOrderGroup={removeOrderGroup}
+        onAddOrderGroup={(category) => setActiveOrderGroupCategory(category)}
       />
 
       {/* Checkout Modal */}
