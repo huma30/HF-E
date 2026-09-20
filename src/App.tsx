@@ -189,8 +189,13 @@ function MainApp() {
 
   // Quick add without modifiers
   const handleQuickAdd = useCallback((product: Product) => {
+    const category = categories.find((c) => c.id === product.categoryId);
+    if (OrderEngine.getOrderingConfig(category).groupingEnabled) {
+      setActiveOrderGroupCategory(category || null);
+      return;
+    }
     addItem(product, 1, []);
-  }, [addItem]);
+  }, [addItem, categories]);
 
   // Open product modifier modal
   const handleOpenProductModal = useCallback((product: Product) => {
