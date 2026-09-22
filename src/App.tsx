@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider, useCart } from './context/CartContext';
 import {
@@ -25,20 +25,11 @@ import { StoreStatusBadge } from './components/common/StoreStatusBadge';
 import { HeroBannerSlider } from './components/customer/HeroBannerSlider';
 import { CategoryStickyBar } from './components/customer/CategoryStickyBar';
 import { ProductCard } from './components/customer/ProductCard';
-import { ProductModifierModal } from './components/customer/ProductModifierModal';
 import { FloatingCartPill } from './components/customer/FloatingCartPill';
-import { CartDrawer } from './components/customer/CartDrawer';
-import { OrderGroupModal } from './components/customer/OrderGroupModal';
-import { CheckoutModal } from './components/customer/CheckoutModal';
-import { OrderSuccessModal } from './components/customer/OrderSuccessModal';
 import { StoreInfoFooter } from './components/customer/StoreInfoFooter';
 
 // Staff & Admin components
 import { AdminLoginModal } from './components/admin/AdminLoginModal';
-import { AdminLoginPage } from './components/admin/AdminLoginPage';
-import { AdminLayout } from './components/admin/AdminLayout';
-import { PosLayout } from './components/pos/PosLayout';
-import { CustomerRewardsModal } from './components/customer/CustomerRewardsModal';
 
 // Mobile Gesture Navigation
 import { useGestureBack } from './hooks/useGestureBack';
@@ -48,6 +39,83 @@ import { Search, Sparkles, UtensilsCrossed, Layers, Flame, ArrowUpDown } from 'l
 import { OrderEngine } from './services/orderEngine';
 
 type ViewMode = 'STOREFRONT' | 'POS' | 'ADMIN' | 'ADMIN_LOGIN';
+
+const AdminLoginPage = React.lazy(() =>
+  import('./components/admin/AdminLoginPage').then(({ AdminLoginPage }) => ({
+    default: AdminLoginPage,
+  })),
+);
+
+const AdminLayout = React.lazy(() =>
+  import('./components/admin/AdminLayout').then(({ AdminLayout }) => ({
+    default: AdminLayout,
+  })),
+);
+
+const PosLayout = React.lazy(() =>
+  import('./components/pos/PosLayout').then(({ PosLayout }) => ({
+    default: PosLayout,
+  })),
+);
+
+const LazyProductModifierModal = React.lazy(() =>
+  import('./components/customer/ProductModifierModal').then(({ ProductModifierModal }) => ({
+    default: ProductModifierModal,
+  })),
+);
+
+const LazyOrderGroupModal = React.lazy(() =>
+  import('./components/customer/OrderGroupModal').then(({ OrderGroupModal }) => ({
+    default: OrderGroupModal,
+  })),
+);
+
+const LazyCustomerRewardsModal = React.lazy(() =>
+  import('./components/customer/CustomerRewardsModal').then(({ CustomerRewardsModal }) => ({
+    default: CustomerRewardsModal,
+  })),
+);
+
+const LazyCartDrawer = React.lazy(() =>
+  import('./components/customer/CartDrawer').then(({ CartDrawer }) => ({
+    default: CartDrawer,
+  })),
+);
+
+const LazyCheckoutModal = React.lazy(() =>
+  import('./components/customer/CheckoutModal').then(({ CheckoutModal }) => ({
+    default: CheckoutModal,
+  })),
+);
+
+const LazyOrderSuccessModal = React.lazy(() =>
+  import('./components/customer/OrderSuccessModal').then(({ OrderSuccessModal }) => ({
+    default: OrderSuccessModal,
+  })),
+);
+
+function DeferredModal({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+}) {
+  const [hasOpened, setHasOpened] = useState(open);
+
+  useEffect(() => {
+    if (open) setHasOpened(true);
+  }, [open]);
+
+  if (!hasOpened) return null;
+
+  return (
+    <Suspense fallback={null}>
+      {children}
+    </Suspense>
+  );
+}
+
 
 function MainApp() {
   const { currentUser, role, adminProfile } = useAuth();
@@ -60,16 +128,16 @@ function MainApp() {
 
   // Master Data State (Synchronously initialized from persistent cache for instant 0ms first-paint)
   const cachedCatalog = FirestoreService.getCachedCatalogSync();
-  const [products, setProducts] = useState<Product[]>(() => cachedCatalog.products || []);
-  const [categories, setCategories] = useState<Category[]>(() => cachedCatalog.categories || []);
-  const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>(() => cachedCatalog.modifierGroups || []);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [promos, setPromos] = useState<Promo[]>(() => cachedCatalog.promos || []);
-  const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>(() => cachedCatalog.deliveryAreas || []);
-  const [banners, setBanners] = useState<Banner[]>(() => cachedCatalog.banners || []);
-  const [settings, setSettings] = useState<StoreSettings | null>(() => cachedCatalog.settings || null);
-  const [platformLinks, setPlatformLinks] = useState<PlatformLink[]>(() => cachedCatalog.platformLinks || []);
-  const [isLoading, setIsLoading] = useState(() => !cachedCatalog.products || cachedCatalog.products.length === 0);
+  const [promos, setPromos] = useState<Promo[]>([]);
+  const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [platformLinks, setPlatformLinks] = useState<PlatformLink[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Customer UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -94,10 +162,10 @@ function MainApp() {
     try {
       // Priority 1: Critical for storefront first-paint (categories, products, banners, settings)
       const [prods, cats, bnrs, sets] = await Promise.all([
-        FirestoreService.getProducts(),
-        FirestoreService.getCategories(),
-        FirestoreService.getBanners(),
-        FirestoreService.getStoreSettings(),
+        FirestoreService.getProducts(true),
+        FirestoreService.getCategories(true),
+        FirestoreService.getBanners(true),
+        FirestoreService.getStoreSettings(true),
       ]);
 
       setProducts(prods);
@@ -384,56 +452,62 @@ function MainApp() {
   // If in Isolated Admin Login Page
   if (viewMode === 'ADMIN_LOGIN') {
     return (
-      <>
-        <GestureBackIndicator gestureState={gestureState} label="Kembali ke Beranda" />
-        <AdminLoginPage
-          settings={settings}
-          onSuccess={() => {
-            setViewMode(pendingTarget);
-          }}
-          onBackToStorefront={handleBackToStorefront}
-        />
-      </>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#FBFBFC] text-sm text-gray-500">Memuat...</div>}>
+        <>
+          <GestureBackIndicator gestureState={gestureState} label="Kembali ke Beranda" />
+          <AdminLoginPage
+            settings={settings}
+            onSuccess={() => {
+              setViewMode(pendingTarget);
+            }}
+            onBackToStorefront={handleBackToStorefront}
+          />
+        </>
+      </Suspense>
     );
   }
 
   // If in POS Mode
   if (viewMode === 'POS') {
     return (
-      <>
-        <GestureBackIndicator gestureState={gestureState} label="Keluar POS" />
-        <PosLayout
-          products={products}
-          categories={categories}
-          modifierGroups={modifierGroups}
-          settings={settings}
-          promos={promos}
-          onExitPos={handleBackToStorefront}
-          onOpenAdmin={() => setViewMode('ADMIN')}
-        />
-      </>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#FBFBFC] text-sm text-gray-500">Memuat POS...</div>}>
+        <>
+          <GestureBackIndicator gestureState={gestureState} label="Keluar POS" />
+          <PosLayout
+            products={products}
+            categories={categories}
+            modifierGroups={modifierGroups}
+            settings={settings}
+            promos={promos}
+            onExitPos={handleBackToStorefront}
+            onOpenAdmin={() => setViewMode('ADMIN')}
+          />
+        </>
+      </Suspense>
     );
   }
 
   // If in Admin Dashboard Mode
   if (viewMode === 'ADMIN') {
     return (
-      <>
-        <GestureBackIndicator gestureState={gestureState} label="Ke Beranda" />
-        <AdminLayout
-          products={products}
-          categories={categories}
-          modifierGroups={modifierGroups}
-          orders={orders}
-          promos={promos}
-          deliveryAreas={deliveryAreas}
-          banners={banners}
-          settings={settings}
-          onRefreshData={loadMasterData}
-          onOpenPos={() => setViewMode('POS')}
-          onBackToStorefront={handleBackToStorefront}
-        />
-      </>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#FBFBFC] text-sm text-gray-500">Memuat Admin...</div>}>
+        <>
+          <GestureBackIndicator gestureState={gestureState} label="Ke Beranda" />
+          <AdminLayout
+            products={products}
+            categories={categories}
+            modifierGroups={modifierGroups}
+            orders={orders}
+            promos={promos}
+            deliveryAreas={deliveryAreas}
+            banners={banners}
+            settings={settings}
+            onRefreshData={loadMasterData}
+            onOpenPos={() => setViewMode('POS')}
+            onBackToStorefront={handleBackToStorefront}
+          />
+        </>
+      </Suspense>
     );
   }
 
@@ -576,7 +650,8 @@ function MainApp() {
       />
 
       {/* Product Modifier Dialog */}
-      <ProductModifierModal
+      <DeferredModal open={!!activeModifierProduct}>
+      <LazyProductModifierModal
         product={activeModifierProduct}
         modifierGroups={modifierGroups}
         categories={categories}
@@ -584,8 +659,11 @@ function MainApp() {
         onClose={() => setActiveModifierProduct(null)}
         onAddToCart={handleAddWithModifiers}
       />
+      </DeferredModal>
 
-      <OrderGroupModal
+      <DeferredModal open={!!activeOrderGroupCategory}>
+
+      <LazyOrderGroupModal
         isOpen={!!activeOrderGroupCategory}
         category={activeOrderGroupCategory}
         products={products}
@@ -608,16 +686,21 @@ function MainApp() {
         }}
       />
 
+      </DeferredModal>
+
       {/* Customer Rewards & Points Modal (Kotak Hadiah) */}
-      <CustomerRewardsModal
+      <DeferredModal open={isRewardsModalOpen}>
+      <LazyCustomerRewardsModal
         isOpen={isRewardsModalOpen}
         onClose={() => setIsRewardsModalOpen(false)}
         settings={settings}
         products={products}
       />
+      </DeferredModal>
 
       {/* Slide-over Cart Drawer */}
-      <CartDrawer
+      <DeferredModal open={isCartDrawerOpen}>
+      <LazyCartDrawer
         isOpen={isCartDrawerOpen}
         onClose={() => setIsCartDrawerOpen(false)}
         onProceedToCheckout={() => {
@@ -641,9 +724,11 @@ function MainApp() {
         onDeleteOrderGroup={removeOrderGroup}
         onAddOrderGroup={(category) => setActiveOrderGroupCategory(category)}
       />
+      </DeferredModal>
 
       {/* Checkout Modal */}
-      <CheckoutModal
+      <DeferredModal open={isCheckoutOpen}>
+      <LazyCheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         deliveryAreas={deliveryAreas}
@@ -655,9 +740,11 @@ function MainApp() {
           setIsOrderSuccessOpen(true);
         }}
       />
+      </DeferredModal>
 
       {/* Order Success Modal (With WhatsApp CTA) */}
-      <OrderSuccessModal
+      <DeferredModal open={isOrderSuccessOpen}>
+      <LazyOrderSuccessModal
         order={justCompletedOrder}
         settings={settings}
         isOpen={isOrderSuccessOpen}
@@ -666,6 +753,7 @@ function MainApp() {
           setJustCompletedOrder(null);
         }}
       />
+      </DeferredModal>
 
       {/* Admin / Staff Login Modal */}
       <AdminLoginModal
