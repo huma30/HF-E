@@ -25,6 +25,14 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
   const [sortOrder, setSortOrder] = useState(1);
   const [isActive, setIsActive] = useState(true);
 
+  // New Order Group Configuration (kept separate from legacy Batch Modifier)
+  const [orderingGroupingEnabled, setOrderingGroupingEnabled] = useState(false);
+  const [orderingModifierEnabled, setOrderingModifierEnabled] = useState(false);
+  const [orderingModifierGroupId, setOrderingModifierGroupId] = useState('');
+  const [orderingModifierRequired, setOrderingModifierRequired] = useState(true);
+  const [orderingModifierMinSelection, setOrderingModifierMinSelection] = useState<number>(1);
+  const [orderingModifierMaxSelection, setOrderingModifierMaxSelection] = useState<number>(2);
+
   // Batch Modifier Configuration
   const [batchModifierEnabled, setBatchModifierEnabled] = useState(false);
   const [batchModifierGroupId, setBatchModifierGroupId] = useState('');
@@ -42,6 +50,12 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
     setIcon('🍲');
     setSortOrder(categories.length + 1);
     setIsActive(true);
+    setOrderingGroupingEnabled(false);
+    setOrderingModifierEnabled(false);
+    setOrderingModifierGroupId(modifierGroups[0]?.id || '');
+    setOrderingModifierRequired(true);
+    setOrderingModifierMinSelection(1);
+    setOrderingModifierMaxSelection(2);
     setBatchModifierEnabled(false);
     setBatchModifierGroupId(modifierGroups[0]?.id || '');
     setBatchModifierMode('POOL');
@@ -58,6 +72,22 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
     setIcon(c.icon || c.iconName || '🍲');
     setSortOrder(c.sortOrder);
     setIsActive(c.isActive);
+    setOrderingGroupingEnabled(!!c.orderingConfig?.groupingEnabled);
+    setOrderingModifierEnabled(!!c.orderingConfig?.modifierEnabled);
+    setOrderingModifierGroupId(
+      c.orderingConfig?.modifierGroupId || c.batchModifierGroupId || modifierGroups[0]?.id || ''
+    );
+    setOrderingModifierRequired(c.orderingConfig?.modifierRequired !== false);
+    setOrderingModifierMinSelection(
+      c.orderingConfig?.modifierMinSelection !== undefined
+        ? Number(c.orderingConfig.modifierMinSelection)
+        : 1
+    );
+    setOrderingModifierMaxSelection(
+      c.orderingConfig?.modifierMaxSelection !== undefined && Number(c.orderingConfig.modifierMaxSelection) > 0
+        ? Number(c.orderingConfig.modifierMaxSelection)
+        : 2
+    );
     setBatchModifierEnabled(!!c.batchModifierEnabled);
     setBatchModifierGroupId(c.batchModifierGroupId || modifierGroups[0]?.id || '');
     setBatchModifierMode(c.batchModifierMode || 'POOL');
@@ -82,6 +112,21 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
       return;
     }
 
+    if (orderingModifierEnabled && orderingGroupingEnabled) {
+      if (!orderingModifierGroupId) {
+        alert('Pilih Grup Modifier untuk Order Group terlebih dahulu.');
+        return;
+      }
+      const orderingMin = orderingModifierRequired
+        ? Math.max(1, Number(orderingModifierMinSelection) || 1)
+        : Math.max(0, Number(orderingModifierMinSelection) || 0);
+      const orderingMax = Math.max(1, Number(orderingModifierMaxSelection) || 1);
+      if (orderingMin > orderingMax) {
+        alert(`Batas minimal Order Group (${orderingMin}) tidak boleh lebih besar dari batas maksimal (${orderingMax}).`);
+        return;
+      }
+    }
+
     if (batchModifierEnabled) {
       if (!batchModifierGroupId) {
         alert('Pilih Grup Modifier Bumbu terlebih dahulu.');
@@ -100,6 +145,10 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
       const generatedSlug = slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       const safeMin = batchModifierRequired ? Math.max(1, Number(batchModifierMinSelection) || 1) : Math.max(0, Number(batchModifierMinSelection) || 0);
       const safeMax = Math.max(safeMin, Math.max(1, Number(batchModifierMaxSelection) || 2));
+      const orderingMin = orderingModifierRequired
+        ? Math.max(1, Number(orderingModifierMinSelection) || 1)
+        : Math.max(0, Number(orderingModifierMinSelection) || 0);
+      const orderingMax = Math.max(orderingMin, Math.max(1, Number(orderingModifierMaxSelection) || 2));
 
       const payload: Omit<Category, 'id'> = {
         name: name.trim(),
@@ -108,6 +157,15 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
         iconName: icon.trim() || '🍲',
         sortOrder: Number(sortOrder) || 1,
         isActive,
+        orderingConfig: {
+          groupingEnabled: orderingGroupingEnabled,
+          modifierEnabled: orderingGroupingEnabled && orderingModifierEnabled,
+          modifierScope: 'group',
+          modifierGroupId: orderingGroupingEnabled && orderingModifierEnabled ? orderingModifierGroupId : undefined,
+          modifierRequired: orderingGroupingEnabled && orderingModifierEnabled ? orderingModifierRequired : undefined,
+          modifierMinSelection: orderingGroupingEnabled && orderingModifierEnabled ? orderingMin : undefined,
+          modifierMaxSelection: orderingGroupingEnabled && orderingModifierEnabled ? orderingMax : undefined,
+        },
         batchModifierEnabled,
         batchModifierGroupId: batchModifierEnabled ? batchModifierGroupId : undefined,
         batchModifierMode: batchModifierEnabled ? batchModifierMode : undefined,
@@ -151,7 +209,7 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
             Manajemen Kategori
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Atur urutan, pengelompokan menu, dan pilihan bumbu massal (Batch Modifier)
+            Atur urutan, Order Group baru, dan pilihan bumbu massal (Batch Modifier) lama.
           </p>
         </div>
 
@@ -247,6 +305,103 @@ export const AdminCategoryManager: React.FC<AdminCategoryManagerProps> = ({
                 className="w-full text-xs px-3 py-2 rounded-xl bg-gray-50 border border-gray-200"
               />
             </div>
+          </div>
+
+          {/* New Order Group Section */}
+          <div className="p-3 bg-orange-50/70 border border-orange-200 rounded-xl space-y-2.5">
+            <label className="flex items-center gap-2 text-xs font-bold text-[#2E1A47] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={orderingGroupingEnabled}
+                onChange={(e) => setOrderingGroupingEnabled(e.target.checked)}
+                className="rounded-sm text-[#FF4500]"
+              />
+              <span>Aktifkan Order Group untuk kategori ini</span>
+            </label>
+            <p className="text-[11px] text-gray-500">
+              Customer/POS dapat memilih beberapa produk dalam satu grup, lalu grup berikutnya dapat memiliki bumbu yang berbeda.
+            </p>
+
+            {orderingGroupingEnabled && (
+              <div className="pt-2 border-t border-orange-200/60 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-[#2E1A47] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={orderingModifierEnabled}
+                    onChange={(e) => setOrderingModifierEnabled(e.target.checked)}
+                    className="rounded-sm text-[#FF4500]"
+                  />
+                  <span>Aktifkan bumbu/modifier level grup</span>
+                </label>
+
+                {orderingModifierEnabled && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">Grup Modifier:</label>
+                      <select
+                        value={orderingModifierGroupId}
+                        onChange={(e) => setOrderingModifierGroupId(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-xl bg-white border border-gray-200 font-semibold"
+                      >
+                        <option value="">-- Pilih Grup Modifier --</option>
+                        {modifierGroups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name} ({g.items.length} opsi)</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Sifat Pilihan:</label>
+                        <select
+                          value={orderingModifierRequired ? 'REQUIRED' : 'OPTIONAL'}
+                          onChange={(e) => {
+                            const required = e.target.value === 'REQUIRED';
+                            setOrderingModifierRequired(required);
+                            if (required && orderingModifierMinSelection === 0) setOrderingModifierMinSelection(1);
+                          }}
+                          className="w-full text-xs px-2.5 py-1.5 rounded-xl bg-white border border-gray-200"
+                        >
+                          <option value="REQUIRED">Wajib Dipilih</option>
+                          <option value="OPTIONAL">Opsional</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Scope:</label>
+                        <div className="w-full text-xs px-2.5 py-1.5 rounded-xl bg-gray-100 border border-gray-200 font-semibold text-gray-700">
+                          Per Order Group
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Minimal Pilihan:</label>
+                        <input
+                          type="number"
+                          min={orderingModifierRequired ? 1 : 0}
+                          max={orderingModifierMaxSelection || 20}
+                          value={orderingModifierMinSelection}
+                          onChange={(e) => setOrderingModifierMinSelection(Math.max(orderingModifierRequired ? 1 : 0, Number(e.target.value) || 0))}
+                          className="w-full text-xs px-3 py-2 rounded-xl bg-white border border-gray-200 font-semibold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Maksimal Pilihan:</label>
+                        <input
+                          type="number"
+                          min={Math.max(1, orderingModifierMinSelection)}
+                          max={20}
+                          value={orderingModifierMaxSelection}
+                          onChange={(e) => setOrderingModifierMaxSelection(Math.max(1, Number(e.target.value) || 1))}
+                          className="w-full text-xs px-3 py-2 rounded-xl bg-white border border-gray-200 font-semibold"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Batch Modifier Section */}

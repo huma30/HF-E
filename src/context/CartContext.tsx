@@ -7,16 +7,25 @@ import {
   DeliveryArea,
   ServiceType,
   BatchModifierSelection,
+  OrderGroup,
+  OrderGroupItem,
+  OrderGroupModifier,
 } from '../types';
 import { PricingEngine, MixMatchBundleDetail } from '../services/pricingEngine';
+import { OrderEngine } from '../services/orderEngine';
 
 interface CartContextType {
   items: CartItem[];
+  /** New grouped-order state. Legacy items remain supported during migration. */
+  orderGroups: OrderGroup[];
+  orderGroupCount: number;
+  groupedSubtotal: number;
   itemCount: number;
   subtotal: number;
   discount: number;
   mixMatchDiscount: number;
   mixMatchBundles: MixMatchBundleDetail[];
+  mixMatchGroupDiscounts: Record<string, number>;
   deliveryFee: number;
   total: number;
   appliedPromo: Promo | null;
@@ -34,6 +43,12 @@ interface CartContextType {
     selectedModifiers: SelectedModifier[],
     notes?: string
   ) => void;
+  addOrderGroup: (group: OrderGroup) => void;
+  updateOrderGroup: (
+    groupId: string,
+    patch: Partial<Pick<OrderGroup, 'categoryId' | 'items' | 'modifiers' | 'note'>>
+  ) => void;
+  removeOrderGroup: (groupId: string) => void;
   updateItemQuantity: (cartItemId: string, quantity: number, allProducts: Product[]) => void;
   removeItem: (cartItemId: string) => void;
   updateItemNotes: (cartItemId: string, notes: string) => void;
@@ -48,11 +63,21 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const CART_STORAGE_KEY = 'huma_cart_v3';
 const BATCH_STORAGE_KEY = 'huma_batch_v1';
+const ORDER_GROUP_STORAGE_KEY = 'huma_order_groups_v1';
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<CartItem[]>(() => {
     try {
       const saved = localStorage.getItem(CART_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [orderGroups, setOrderGroups] = useState<OrderGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem(ORDER_GROUP_STORAGE_KEY);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -127,6 +152,15 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setBatchSelections({});
   }, []);
 
+  // Persist grouped order state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(ORDER_GROUP_STORAGE_KEY, JSON.stringify(orderGroups));
+    } catch (e) {
+      console.warn('Unable to persist order groups locally', e);
+    }
+  }, [orderGroups]);
+
   // Persist cart to localStorage
   useEffect(() => {
     try {
@@ -137,13 +171,28 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [items]);
 
   // Derived calculations
-  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const legacyItemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const groupedItemCount = orderGroups.reduce(
+    (sum, group) => sum + group.items.reduce((groupSum, item) => groupSum + item.quantity, 0),
+    0
+  );
+  const itemCount = legacyItemCount + groupedItemCount;
+  const groupedSubtotal = orderGroups.reduce(
+    (sum, group) => sum + OrderEngine.calculateGroupSubtotal(group),
+    0
+  );
+  const legacySubtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const subtotal = legacySubtotal + groupedSubtotal;
 
   // 1. Calculate Mix & Match automatic discounts
-  const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(items, availablePromos);
+  const pricingItems = useMemo(
+    () => [...items, ...OrderEngine.flattenGroups(orderGroups)],
+    [items, orderGroups]
+  );
+  const mixMatchResult = PricingEngine.calculateMixMatchDiscounts(pricingItems, availablePromos);
   const mixMatchDiscount = mixMatchResult.discount;
   const mixMatchBundles = mixMatchResult.appliedBundles;
+  const mixMatchGroupDiscounts = mixMatchResult.groupDiscounts || {};
 
   const rawDeliveryFee = serviceType === 'DELIVERY' && selectedDeliveryArea ? selectedDeliveryArea.deliveryFee : 0;
   
@@ -157,6 +206,33 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const discount = mixMatchDiscount + voucherDiscount;
   const total = Math.max(0, subtotal - discount + effectiveDeliveryFee);
+
+  const addOrderGroup = useCallback((group: OrderGroup) => {
+    const normalized = OrderEngine.recalculateGroup({
+      ...group,
+      id: group.id || `group_${Date.now()}`,
+      items: (group.items || []).map((item) => ({ ...item })),
+      modifiers: (group.modifiers || []).map((modifier) => ({ ...modifier })),
+    });
+
+    setOrderGroups((prev) => [...prev, normalized]);
+  }, []);
+
+  const updateOrderGroup = useCallback((
+    groupId: string,
+    patch: Partial<Pick<OrderGroup, 'categoryId' | 'items' | 'modifiers' | 'note'>>
+  ) => {
+    setOrderGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+        return OrderEngine.updateGroup(group, patch);
+      })
+    );
+  }, []);
+
+  const removeOrderGroup = useCallback((groupId: string) => {
+    setOrderGroups((prev) => OrderEngine.deleteGroup(prev, groupId));
+  }, []);
 
   const addItem = useCallback((
     product: Product,
@@ -266,6 +342,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const clearCart = useCallback(() => {
     setItems([]);
+    setOrderGroups([]);
     setAppliedPromo(null);
     setBatchSelections({});
   }, []);
@@ -290,11 +367,15 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const contextValue = useMemo<CartContextType>(
     () => ({
       items,
+      orderGroups,
+      orderGroupCount: orderGroups.length,
+      groupedSubtotal,
       itemCount,
       subtotal,
       discount,
       mixMatchDiscount,
       mixMatchBundles,
+      mixMatchGroupDiscounts,
       deliveryFee: effectiveDeliveryFee,
       total,
       appliedPromo,
@@ -307,6 +388,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       removeBatchSelection,
       clearBatchSelections,
       addItem,
+      addOrderGroup,
+      updateOrderGroup,
+      removeOrderGroup,
       updateItemQuantity,
       removeItem,
       updateItemNotes,
@@ -318,11 +402,14 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }),
     [
       items,
+      orderGroups,
+      groupedSubtotal,
       itemCount,
       subtotal,
       discount,
       mixMatchDiscount,
       mixMatchBundles,
+      mixMatchGroupDiscounts,
       effectiveDeliveryFee,
       total,
       appliedPromo,
@@ -335,6 +422,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       removeBatchSelection,
       clearBatchSelections,
       addItem,
+      addOrderGroup,
+      updateOrderGroup,
+      removeOrderGroup,
       updateItemQuantity,
       removeItem,
       updateItemNotes,

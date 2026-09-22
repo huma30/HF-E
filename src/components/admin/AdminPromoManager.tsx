@@ -3,7 +3,7 @@ import { Promo, PromoType, Category, Product } from '../../types';
 import { FirestoreService } from '../../services/firestoreService';
 import { errorService } from '../../services/errorService';
 import { Modal } from '../common/Modal';
-import { Plus, Edit2, Trash2, Tag, Percent, Sparkles, Check, X, Loader2, Layers } from 'lucide-react';
+import { Plus, Edit2, Trash2, Tag, Percent, Sparkles, Check, X, Loader2, Layers, Search, CheckSquare, Square } from 'lucide-react';
 
 interface AdminPromoManagerProps {
   promos: Promo[];
@@ -29,27 +29,34 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
   const [maxDiscountAmount, setMaxDiscountAmount] = useState<number>(10000);
   const [isActive, setIsActive] = useState(true);
 
-  // Mix & Match Configuration
-  const [mixMatchQuantity, setMixMatchQuantity] = useState<number>(10);
-  const [mixMatchDiscountType, setMixMatchDiscountType] = useState<'FIXED' | 'PERCENTAGE' | 'FIXED_PRICE'>('FIXED');
-  const [mixMatchDiscountValue, setMixMatchDiscountValue] = useState<number>(2000);
+  // Mix & Match Quantity-Based Pricing Configuration
+  const [mixMatchMinQty, setMixMatchMinQty] = useState<number>(2);
+  const [mixMatchPromoPrice, setMixMatchPromoPrice] = useState<number>(1500);
+  const [mixMatchRule, setMixMatchRule] = useState<'FULL_MULTIPLES' | 'ALL_ELIGIBLE'>('FULL_MULTIPLES');
+  const [mixMatchBundleQty, setMixMatchBundleQty] = useState<number>(2);
+  const [mixMatchProductIds, setMixMatchProductIds] = useState<string[]>([]);
   const [mixMatchCategoryIds, setMixMatchCategoryIds] = useState<string[]>([]);
+  const [productSearch, setProductSearch] = useState<string>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleOpenNew = () => {
     setEditingPromo(null);
     setCode('PROMO' + Math.floor(100 + Math.random() * 900));
-    setName('Promo Spesial HUMA');
-    setDiscountType('FIXED');
-    setDiscountValue(5000);
-    setMinOrderAmount(30000);
-    setMaxDiscountAmount(10000);
+    setName('Mix & Match Spesial');
+    setDiscountType('MIX_MATCH');
+    setDiscountValue(1500);
+    setMinOrderAmount(0);
+    setMaxDiscountAmount(0);
     setIsActive(true);
-    setMixMatchQuantity(10);
-    setMixMatchDiscountType('FIXED');
-    setMixMatchDiscountValue(2000);
-    setMixMatchCategoryIds(categories.slice(0, 1).map((c) => c.id));
+    setMixMatchMinQty(2);
+    setMixMatchPromoPrice(1500);
+    setMixMatchRule('FULL_MULTIPLES');
+    setMixMatchBundleQty(2);
+    // Preselect all products or first few active products if available
+    setMixMatchProductIds(products.slice(0, 4).map((p) => p.id));
+    setMixMatchCategoryIds([]);
+    setProductSearch('');
     setIsModalOpen(true);
   };
 
@@ -62,11 +69,28 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
     setMinOrderAmount(p.minOrderAmount ?? p.minPurchase ?? 0);
     setMaxDiscountAmount(p.maxDiscountAmount ?? p.maxDiscount ?? 0);
     setIsActive(p.isActive);
-    setMixMatchQuantity(p.mixMatchQuantity || 10);
-    setMixMatchDiscountType(p.mixMatchDiscountType || 'FIXED');
-    setMixMatchDiscountValue(p.mixMatchDiscountValue ?? 2000);
+    setMixMatchMinQty(p.mixMatchMinQty ?? p.mixMatchQuantity ?? 2);
+    setMixMatchPromoPrice(p.mixMatchPromoPrice ?? p.mixMatchDiscountValue ?? p.discountValue ?? p.value ?? 1500);
+    setMixMatchRule(p.mixMatchRule ?? 'FULL_MULTIPLES');
+    setMixMatchBundleQty(Math.max(1, p.mixMatchBundleQty ?? p.mixMatchMinQty ?? p.mixMatchQuantity ?? 2));
+    setMixMatchProductIds(p.mixMatchProductIds || []);
     setMixMatchCategoryIds(p.mixMatchCategoryIds || []);
+    setProductSearch('');
     setIsModalOpen(true);
+  };
+
+  const handleToggleProduct = (prodId: string) => {
+    setMixMatchProductIds((prev) =>
+      prev.includes(prodId) ? prev.filter((id) => id !== prodId) : [...prev, prodId]
+    );
+  };
+
+  const handleSelectAllProducts = () => {
+    if (mixMatchProductIds.length === products.length) {
+      setMixMatchProductIds([]);
+    } else {
+      setMixMatchProductIds(products.map((p) => p.id));
+    }
   };
 
   const handleToggleCategory = (catId: string) => {
@@ -86,7 +110,25 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
       alert('Nama promo wajib diisi.');
       return;
     }
-    if (discountType !== 'MIX_MATCH' && Number(discountValue) <= 0) {
+
+    if (discountType === 'MIX_MATCH') {
+      if (mixMatchMinQty < 1) {
+        alert('Minimal kuantiti produk harus minimal 1.');
+        return;
+      }
+      if (mixMatchPromoPrice < 0) {
+        alert('Harga promo per item tidak boleh negatif.');
+        return;
+      }
+      if (mixMatchProductIds.length === 0 && mixMatchCategoryIds.length === 0) {
+        alert('Pilih minimal 1 produk eligible untuk promo Mix & Match.');
+        return;
+      }
+      if (mixMatchBundleQty < 1) {
+        alert('Ukuran paket Mix & Match minimal 1 item.');
+        return;
+      }
+    } else if (Number(discountValue) <= 0) {
       alert('Nilai diskon promo harus lebih dari 0.');
       return;
     }
@@ -97,19 +139,25 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
         code: cleanCode,
         name: name.trim(),
         type: discountType,
-        value: Number(discountValue),
+        value: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : Number(discountValue),
         minPurchase: Number(minOrderAmount) || 0,
         maxDiscount: discountType === 'PERCENTAGE' ? Number(maxDiscountAmount) || 0 : 0,
         discountType,
-        discountValue: Number(discountValue),
+        discountValue: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : Number(discountValue),
         minOrderAmount: Number(minOrderAmount) || 0,
         maxDiscountAmount: discountType === 'PERCENTAGE' ? Number(maxDiscountAmount) || 0 : 0,
         usedCount: editingPromo ? editingPromo.usedCount : 0,
         isActive,
-        // Mix & Match specifics
-        mixMatchQuantity: discountType === 'MIX_MATCH' ? Number(mixMatchQuantity) || 10 : undefined,
-        mixMatchDiscountType: discountType === 'MIX_MATCH' ? mixMatchDiscountType : undefined,
-        mixMatchDiscountValue: discountType === 'MIX_MATCH' ? Number(mixMatchDiscountValue) || 0 : undefined,
+        // Mix & Match Quantity-Based Pricing settings (Single Source of Truth)
+        isMixMatch: discountType === 'MIX_MATCH',
+        mixMatchMinQty: discountType === 'MIX_MATCH' ? Number(mixMatchMinQty) : undefined,
+        mixMatchQuantity: discountType === 'MIX_MATCH' ? Number(mixMatchMinQty) : undefined, // Alias for backward compatibility
+        mixMatchPromoPrice: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : undefined,
+        mixMatchRule: discountType === 'MIX_MATCH' ? mixMatchRule : undefined,
+        mixMatchBundleQty: discountType === 'MIX_MATCH' ? Number(mixMatchBundleQty) : undefined,
+        mixMatchDiscountType: discountType === 'MIX_MATCH' ? 'FIXED_PRICE' : undefined,
+        mixMatchDiscountValue: discountType === 'MIX_MATCH' ? Number(mixMatchPromoPrice) : undefined,
+        mixMatchProductIds: discountType === 'MIX_MATCH' ? mixMatchProductIds : undefined,
         mixMatchCategoryIds: discountType === 'MIX_MATCH' ? mixMatchCategoryIds : undefined,
       };
 
@@ -189,20 +237,23 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
 
                 <div className="mt-2 text-xs text-gray-600">
                   {promoType === 'MIX_MATCH' ? (
-                    <div className="space-y-0.5">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold">
-                        <Layers className="w-2.5 h-2.5" />
-                        Mix & Match {p.mixMatchQuantity || 10} pcs
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[10px] font-extrabold tracking-wide">
+                        <Layers className="w-2.5 h-2.5 text-amber-700" />
+                        Min. {p.mixMatchMinQty ?? p.mixMatchQuantity ?? 2} pcs
                       </span>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        Diskon:{' '}
-                        <strong className="text-gray-900">
-                          {p.mixMatchDiscountType === 'FIXED_PRICE'
-                            ? `Harga Rp ${(p.mixMatchDiscountValue || 0).toLocaleString('id-ID')}`
-                            : p.mixMatchDiscountType === 'PERCENTAGE'
-                            ? `${p.mixMatchDiscountValue}%`
-                            : `Potongan Rp ${(p.mixMatchDiscountValue || 0).toLocaleString('id-ID')}`}
+                      <p className="text-[11px] text-gray-600 mt-0.5">
+                        Harga Promo:{' '}
+                        <strong className="text-emerald-700 font-extrabold text-xs">
+                          Rp {(p.mixMatchPromoPrice ?? p.mixMatchDiscountValue ?? p.discountValue ?? p.value ?? 0).toLocaleString('id-ID')} / pcs
                         </strong>
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {p.mixMatchProductIds && p.mixMatchProductIds.length > 0
+                          ? `${p.mixMatchProductIds.length} produk eligible`
+                          : p.mixMatchCategoryIds && p.mixMatchCategoryIds.length > 0
+                          ? `${p.mixMatchCategoryIds.length} kategori eligible`
+                          : 'Semua produk menu'}
                       </p>
                     </div>
                   ) : (
@@ -289,70 +340,139 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
             </select>
           </div>
 
-          {/* Conditional Mix & Match Settings */}
+          {/* Conditional Mix & Match Settings (Quantity-Based Pricing) */}
           {discountType === 'MIX_MATCH' ? (
             <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-3">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                <Layers className="w-3.5 h-3.5 text-amber-600" />
-                <span>Pengaturan Mix & Match (Paket Campur)</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                  <Layers className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Mix & Match Quantity-Based Pricing</span>
+                </div>
+                <span className="text-[10px] font-semibold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-full">
+                  Semua item eligible dapat harga promo
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Target Kuantiti (Pcs):
+                    Minimal Kuantiti (Qty):
                   </label>
                   <input
                     type="number"
-                    min="2"
-                    value={mixMatchQuantity}
-                    onChange={(e) => setMixMatchQuantity(Number(e.target.value) || 2)}
+                    min="1"
+                    value={mixMatchMinQty}
+                    onChange={(e) => setMixMatchMinQty(Math.max(1, Number(e.target.value) || 1))}
                     className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold"
-                    placeholder="10"
+                    placeholder="2"
                   />
-                  <p className="text-[10px] text-gray-500 mt-0.5">Cth: Tiap kelipatan 10 pcs</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Jika total kuantiti produk eligible &gt;= nilai ini, promo aktif.
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Model Diskon Paket:
+                    Harga Promo / pcs (Rp):
                   </label>
-                  <select
-                    value={mixMatchDiscountType}
-                    onChange={(e) => setMixMatchDiscountType(e.target.value as any)}
-                    className="w-full text-xs px-2 py-1.5 rounded-lg bg-white border border-gray-200"
-                  >
-                    <option value="FIXED">Potongan Rp (Hemat)</option>
-                    <option value="FIXED_PRICE">Harga Paket Pas</option>
-                    <option value="PERCENTAGE">Diskon Persen (%)</option>
-                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    value={mixMatchPromoPrice}
+                    onChange={(e) => setMixMatchPromoPrice(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold text-[#FF4500]"
+                    placeholder="1500"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Harga per pcs yang dibayarkan untuk tiap item eligible.
+                  </p>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                  Nilai Diskon / Harga Paket:
-                </label>
-                <input
-                  type="number"
-                  value={mixMatchDiscountValue}
-                  onChange={(e) => setMixMatchDiscountValue(Number(e.target.value) || 0)}
-                  className="w-full text-xs px-3 py-2 rounded-lg bg-white border border-gray-200 font-bold text-[#FF4500]"
-                  placeholder="2000"
-                />
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  {mixMatchDiscountType === 'FIXED' && 'Nominal potongan yang dikurangkan per paket'}
-                  {mixMatchDiscountType === 'FIXED_PRICE' && 'Total harga tetap per paket kuantiti'}
-                  {mixMatchDiscountType === 'PERCENTAGE' && 'Persentase diskon per paket'}
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">Ukuran Paket / Kelipatan:</label>
+                  <input type="number" min="1" value={mixMatchBundleQty} onChange={(e) => setMixMatchBundleQty(Math.max(1, Number(e.target.value) || 1))} className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold" />
+                  <p className="text-[10px] text-gray-500 mt-0.5">Contoh 2: qty 3 = 2 promo + 1 harga normal.</p>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">Aturan Penerapan:</label>
+                  <select value={mixMatchRule} onChange={(e) => setMixMatchRule(e.target.value as 'FULL_MULTIPLES' | 'ALL_ELIGIBLE')} className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 font-bold">
+                    <option value="FULL_MULTIPLES">Kelipatan penuh</option>
+                    <option value="ALL_ELIGIBLE">Semua eligible setelah minimum</option>
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Kelipatan penuh direkomendasikan untuk paket genap.</p>
+                </div>
               </div>
 
+              {/* Product Eligibility Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-bold text-gray-700">
+                    Produk Eligible ({mixMatchProductIds.length} terpilih):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllProducts}
+                    className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline"
+                  >
+                    {mixMatchProductIds.length === products.length ? 'Batal Pilih Semua' : 'Pilih Semua Produk'}
+                  </button>
+                </div>
+
+                {products.length > 6 && (
+                  <div className="relative mb-2">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari produk eligible..."
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      className="w-full text-xs pl-8 pr-2.5 py-1 rounded-lg bg-white border border-gray-200 placeholder:text-gray-400"
+                    />
+                  </div>
+                )}
+
+                <div className="max-h-40 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200 space-y-1 divide-y divide-gray-100">
+                  {products
+                    .filter((prod) => {
+                      if (!productSearch.trim()) return true;
+                      return prod.name.toLowerCase().includes(productSearch.toLowerCase());
+                    })
+                    .map((prod) => {
+                      const isSelected = mixMatchProductIds.includes(prod.id);
+                      return (
+                        <div
+                          key={prod.id}
+                          onClick={() => handleToggleProduct(prod.id)}
+                          className={`pt-1 first:pt-0 flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
+                            isSelected ? 'bg-purple-50 text-purple-950 font-bold' : 'hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-purple-600 shrink-0" />
+                            ) : (
+                              <Square className="w-4 h-4 text-gray-300 shrink-0" />
+                            )}
+                            <span className="truncate max-w-[200px]">{prod.name}</span>
+                          </div>
+                          <span className="text-[11px] font-mono text-gray-500">
+                            Rp {prod.price.toLocaleString('id-ID')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Optional Category Eligibility as fallback/convenience */}
               {categories.length > 0 && (
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Kategori Menu yang Berlaku:
+                    Atau Pilih Kategori Utuh:
                   </label>
-                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1.5 bg-white rounded-lg border border-gray-200">
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 bg-white rounded-lg border border-gray-200">
                     {categories.map((cat) => {
                       const isSelected = mixMatchCategoryIds.includes(cat.id);
                       return (
@@ -373,9 +493,6 @@ export const AdminPromoManager: React.FC<AdminPromoManagerProps> = ({
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
-                    Kosongkan jika berlaku untuk seluruh kategori menu.
-                  </p>
                 </div>
               )}
             </div>

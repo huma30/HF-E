@@ -97,6 +97,19 @@ export interface Banner {
   sortOrder: number;
 }
 
+
+export type ModifierScope = 'group' | 'item';
+
+export interface OrderingConfig {
+  groupingEnabled: boolean;
+  modifierEnabled: boolean;
+  modifierScope: ModifierScope;
+  modifierGroupId?: string;
+  modifierRequired?: boolean;
+  modifierMinSelection?: number;
+  modifierMaxSelection?: number;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -113,6 +126,11 @@ export interface Category {
   batchModifierMinSelection?: number;
   batchModifierMaxSelection?: number;
   batchModifierMode?: 'UNIFORM' | 'PER_ITEM' | 'POOL';
+  /**
+   * Canonical configuration for grouped ordering.
+   * Optional during migration so legacy categories remain valid.
+   */
+  orderingConfig?: OrderingConfig;
 }
 
 export interface WholesaleRule {
@@ -203,7 +221,50 @@ export interface CartItem {
   lineTotal: number;
   notes?: string;
   categoryId?: string;
+  /**
+   * Canonical relationship to an OrderGroup during the migration to grouped ordering.
+   * Kept optional so existing flat cart items remain fully backward-compatible.
+   */
+  orderGroupId?: string;
+  /**
+   * Legacy Batch Modifier payload. New grouped orders should store group-level
+   * modifiers under OrderGroup.modifiers instead.
+   */
   batchModifiers?: BatchModifierSelection[];
+}
+
+export interface OrderGroupModifier {
+  modifierId: string;
+  name: string;
+  groupId: string;
+  groupName: string;
+  price: number;
+  quantity: number;
+}
+
+export interface OrderGroupItem {
+  id: string;
+  productId: string;
+  name: string;
+  productImage?: string;
+  basePrice: number;
+  unitPrice: number;
+  quantity: number;
+  selectedModifiers: SelectedModifier[];
+  modifiersPrice: number;
+  subtotal: number;
+  notes?: string;
+}
+
+export interface OrderGroup {
+  id: string;
+  categoryId: string;
+  items: OrderGroupItem[];
+  modifiers: OrderGroupModifier[];
+  subtotal: number;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DeliveryArea {
@@ -246,6 +307,10 @@ export interface Promo {
   mixMatchDiscountValue?: number;
   mixMatchPromoPrice?: number;
   mixMatchPriceType?: 'PER_ITEM' | 'PACKAGE';
+  /** Complete bundles only vs legacy all-eligible behavior. */
+  mixMatchRule?: 'FULL_MULTIPLES' | 'ALL_ELIGIBLE';
+  /** Eligible units required in one promo bundle. Defaults to 2. */
+  mixMatchBundleQty?: number;
   mixMatchAllowSameProduct?: boolean;
 }
 
@@ -261,6 +326,11 @@ export interface OrderCustomer {
   notes?: string;
 }
 
+export interface OrderDiscountDetail {
+  label: string;
+  amount: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: string; // e.g. #HF-000125
@@ -272,9 +342,20 @@ export interface Order {
   serviceType: ServiceType;
   deliveryAreaId?: string;
   deliveryAreaName?: string;
+  /**
+   * Canonical grouped-order representation for new orders.
+   * Optional because historical orders may only contain the legacy flat items[] shape.
+   */
+  groups?: OrderGroup[];
+  /**
+   * Legacy flat item list retained for backward compatibility and existing reports.
+   * New order creation should keep this synchronized with groups[].
+   */
   items: CartItem[];
   subtotal: number;
   discount: number;
+  /** Detailed breakdown of the total discount for receipt/audit display. */
+  discountDetails?: OrderDiscountDetail[];
   promoCode?: string;
   deliveryFee: number;
   total: number;

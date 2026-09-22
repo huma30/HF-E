@@ -8,6 +8,7 @@ import {
   StoreSettings,
   SelectedModifier,
   Promo,
+  OrderGroup,
 } from '../../types';
 import { PricingEngine } from '../../services/pricingEngine';
 import { PosPaymentModal } from './PosPaymentModal';
@@ -15,6 +16,8 @@ import { PosHoldOrdersModal, HeldOrder } from './PosHoldOrdersModal';
 import { ThermalReceiptModal } from './ThermalReceiptModal';
 import { ProductModifierModal } from '../customer/ProductModifierModal';
 import { BatchModifierModal } from '../customer/BatchModifierModal';
+import { OrderGroupModal } from '../customer/OrderGroupModal';
+import { OrderEngine } from '../../services/orderEngine';
 import { useAuth } from '../../context/AuthContext';
 import {
   Search,
@@ -65,6 +68,10 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   // Modals state
   const [modifierModalProduct, setModifierModalProduct] = useState<Product | null>(null);
   const [batchModifierProduct, setBatchModifierProduct] = useState<Product | null>(null);
+  const [activeOrderGroupCategory, setActiveOrderGroupCategory] = useState<Category | null>(null);
+  const [editingOrderGroup, setEditingOrderGroup] = useState<OrderGroup | null>(null);
+  const [focusOrderGroupModifier, setFocusOrderGroupModifier] = useState(false);
+  const [orderGroups, setOrderGroups] = useState<OrderGroup[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
   const [heldOrders, setHeldOrders] = useState<HeldOrder[]>([]);
@@ -89,16 +96,25 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   }, [products, selectedCategoryId, searchQuery]);
 
   // Calculations
+  const groupedSubtotal = useMemo(
+    () => orderGroups.reduce((sum, group) => sum + OrderEngine.calculateGroupSubtotal(group), 0),
+    [orderGroups]
+  );
   const subtotal = useMemo(() => {
-    return posCart.reduce((sum, item) => sum + item.lineTotal, 0);
-  }, [posCart]);
+    return posCart.reduce((sum, item) => sum + item.lineTotal, 0) + groupedSubtotal;
+  }, [posCart, groupedSubtotal]);
 
   // Automatic Mix & Match quantity-based promotion
+  const mixMatchItems = useMemo(
+    () => [...posCart, ...OrderEngine.flattenGroups(orderGroups)],
+    [posCart, orderGroups]
+  );
   const mixMatchResult = useMemo(() => {
-    return PricingEngine.calculateMixMatchDiscounts(posCart, promos);
-  }, [posCart, promos]);
+    return PricingEngine.calculateMixMatchDiscounts(mixMatchItems, promos);
+  }, [mixMatchItems, promos]);
 
   const mixMatchDiscount = mixMatchResult.discount;
+  const mixMatchGroupDiscounts = mixMatchResult.groupDiscounts || {};
   const totalDiscount = mixMatchDiscount + discountAmount;
   const total = Math.max(0, subtotal - totalDiscount);
 
@@ -106,6 +122,10 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   const handleProductClick = (product: Product) => {
     if (!product.isAvailable) return;
     const category = categories.find((c) => c.id === product.categoryId);
+    if (OrderEngine.getOrderingConfig(category).groupingEnabled) {
+      setActiveOrderGroupCategory(category || null);
+      return;
+    }
     const isBatchCategory =
       category?.batchModifierEnabled === true &&
       !!category.batchModifierGroupId;
@@ -197,24 +217,39 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
   };
 
   // Hold Order
+  const handleAddOrderGroup = (group: OrderGroup) => {
+    setOrderGroups((prev) => [...prev, group]);
+  };
+
+  const handleUpdateOrderGroup = (groupId: string, patch: Partial<Pick<OrderGroup, 'categoryId' | 'items' | 'modifiers' | 'note'>>) => {
+    setOrderGroups((prev) => prev.map((group) => group.id === groupId ? OrderEngine.updateGroup(group, patch) : group));
+  };
+
+  const handleDeleteOrderGroup = (groupId: string) => {
+    setOrderGroups((prev) => OrderEngine.deleteGroup(prev, groupId));
+  };
+
   const handleHoldCurrentOrder = () => {
-    if (posCart.length === 0) return;
+    if (posCart.length === 0 && orderGroups.length === 0) return;
     const note = prompt('Beri catatan untuk pesanan ini (cth: Meja 3 / Kakak Baju Biru):') || 'Pesanan Parkir';
     const held: HeldOrder = {
       id: 'hold_' + Date.now(),
       note,
       items: [...posCart],
+      groups: orderGroups.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item })), modifiers: group.modifiers.map((modifier) => ({ ...modifier })) })),
       heldAt: new Date().toISOString(),
       total,
     };
     setHeldOrders((prev) => [held, ...prev]);
     setPosCart([]);
+    setOrderGroups([]);
     setDiscountAmount(0);
   };
 
   // Recall Order
   const handleRecallOrder = (held: HeldOrder) => {
     setPosCart(held.items);
+    setOrderGroups(held.groups || []);
     setHeldOrders((prev) => prev.filter((h) => h.id !== held.id));
   };
 
@@ -422,7 +457,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleHoldCurrentOrder}
-                disabled={posCart.length === 0}
+                disabled={posCart.length === 0 && orderGroups.length === 0}
                 className="p-1.5 rounded-lg text-gray-500 hover:text-amber-700 hover:bg-amber-50 disabled:opacity-40 transition-colors"
                 title="Tahan Pesanan (Hold)"
               >
@@ -455,13 +490,44 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
 
           {/* Bill Line Items (Scrollable) */}
           <div className="flex-1 overflow-y-auto my-3 pr-1 space-y-2">
-            {posCart.length === 0 ? (
+            {posCart.length === 0 && orderGroups.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 p-4">
                 <Store className="w-10 h-10 mb-2 opacity-30" />
                 <p className="text-xs font-semibold">Pilih menu di samping untuk membuat struk.</p>
               </div>
             ) : (
-              posCart.map((item) => (
+              <>
+                {orderGroups.map((group, index) => (
+                  <div key={group.id} className="p-2.5 bg-purple-50/70 rounded-xl border border-purple-100">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[10px] font-extrabold text-purple-700">GROUP {index + 1}</div>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => {
+                          const category = categories.find((c) => c.id === group.categoryId);
+                          if (category) { setEditingOrderGroup(group); setActiveOrderGroupCategory(category); }
+                        }} className="text-[10px] font-bold px-2 py-1 bg-white rounded-lg border">Edit</button>
+                        <button type="button" onClick={() => handleDeleteOrderGroup(group.id)} className="text-[10px] font-bold px-2 py-1 bg-white rounded-lg border border-rose-100 text-rose-600">Hapus</button>
+                      </div>
+                    </div>
+                    {group.items.map((item) => (
+                      <div key={item.id} className="flex justify-between text-xs py-0.5">
+                        <span>{item.name} × {item.quantity}</span><span>Rp {item.subtotal.toLocaleString('id-ID')}</span>
+                      </div>
+                    ))}
+                    {group.modifiers.length > 0 && <div className="text-[10px] text-purple-700 mt-1">Bumbu: {group.modifiers.map((m) => m.name).join(', ')}</div>}
+                    <div className="text-right mt-1">
+                      {mixMatchGroupDiscounts[group.id] > 0 && (
+                        <div className="text-[10px] text-emerald-700 font-extrabold">
+                          Mix & Match -Rp {mixMatchGroupDiscounts[group.id].toLocaleString('id-ID')}
+                        </div>
+                      )}
+                      <div className="text-xs font-extrabold text-[#2E1A47]">
+                        Rp {Math.max(0, group.subtotal - (mixMatchGroupDiscounts[group.id] || 0)).toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {posCart.map((item) => (
                 <div
                   key={item.cartItemId}
                   className="p-2.5 bg-gray-50/90 rounded-xl border border-gray-100 flex items-center justify-between gap-2"
@@ -499,7 +565,8 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
                     </button>
                   </div>
                 </div>
-              ))
+              ))}
+              </>
             )}
           </div>
 
@@ -537,7 +604,7 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
             {/* Pay Button */}
             <button
               id="btn-pos-pay"
-              disabled={posCart.length === 0}
+              disabled={posCart.length === 0 && orderGroups.length === 0}
               onClick={() => setIsPaymentModalOpen(true)}
               className="w-full clay-button-primary py-3 px-4 flex items-center justify-between text-sm font-bold shadow-lg disabled:opacity-50"
             >
@@ -596,11 +663,28 @@ export const PosLayout: React.FC<PosLayoutProps> = ({
         );
       })()}
 
+      <OrderGroupModal
+        isOpen={!!activeOrderGroupCategory}
+        category={activeOrderGroupCategory}
+        products={products}
+        modifierGroups={modifierGroups}
+        promos={promos}
+        orderGroups={orderGroups}
+        existingGroup={editingOrderGroup}
+        focusModifier={focusOrderGroupModifier}
+        onClose={() => { setActiveOrderGroupCategory(null); setEditingOrderGroup(null); setFocusOrderGroupModifier(false); }}
+        onSave={(group) => {
+          if (editingOrderGroup) handleUpdateOrderGroup(group.id, group);
+          else handleAddOrderGroup(group);
+        }}
+      />
+
       {/* POS Payment Dialog */}
       <PosPaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         items={posCart}
+        groups={orderGroups}
         subtotal={subtotal}
         discount={discountAmount}
         total={total}

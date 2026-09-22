@@ -1,5 +1,5 @@
 import React from 'react';
-import { CartItem } from '../../types';
+import { CartItem, OrderGroup } from '../../types';
 import { Modal } from '../common/Modal';
 import { Clock, Play, Trash2, ShoppingBag } from 'lucide-react';
 
@@ -7,6 +7,7 @@ export interface HeldOrder {
   id: string;
   note: string;
   items: CartItem[];
+  groups?: OrderGroup[];
   heldAt: string;
   total: number;
 }
@@ -54,7 +55,7 @@ export const PosHoldOrdersModal: React.FC<PosHoldOrdersModalProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-gray-500 mt-0.5">
-                  {held.items.length} item • Rp {held.total.toLocaleString('id-ID')}
+                  {(held.groups?.reduce((sum, group) => sum + group.items.reduce((s, item) => s + item.quantity, 0), 0) || 0) + held.items.reduce((s, item) => s + item.quantity, 0)} item • Rp {held.total.toLocaleString('id-ID')}
                 </p>
               </div>
 

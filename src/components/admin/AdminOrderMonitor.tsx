@@ -243,6 +243,27 @@ export const AdminOrderMonitor: React.FC<AdminOrderMonitorProps> = ({ orders, se
                     </span>
                   </div>
 
+                  {/* Order Groups summary */}
+                  {order.groups && order.groups.length > 0 && (
+                    <div className="text-xs text-gray-600 bg-purple-50/70 p-2 rounded-xl border border-purple-100 mb-2 space-y-2">
+                      {order.groups.map((group, groupIndex) => (
+                        <div key={group.id}>
+                          <div className="font-extrabold text-purple-700">Group {groupIndex + 1}</div>
+                          {group.items.map((item) => (
+                            <div key={item.id} className="flex justify-between py-0.5">
+                              <span>{item.quantity}x {item.name}</span>
+                              <span className="font-semibold">Rp {item.subtotal.toLocaleString('id-ID')}</span>
+                            </div>
+                          ))}
+                          {group.modifiers.length > 0 && (
+                            <div className="text-[11px] text-purple-700">🧂 Bumbu: {group.modifiers.map((m) => m.name).join(', ')}</div>
+                          )}
+                          <div className="text-[11px] font-bold text-gray-700">Subtotal Group: Rp {group.subtotal.toLocaleString('id-ID')}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Items summary */}
                   <div className="text-xs text-gray-600 bg-gray-50/80 p-2 rounded-xl border border-gray-100">
                     {order.items.map((item, idx) => (

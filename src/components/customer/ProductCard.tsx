@@ -1,5 +1,6 @@
 import React from 'react';
 import { Product, ModifierGroup, Category } from '../../types';
+import { OrderEngine } from '../../services/orderEngine';
 import { Plus, Flame, Tag, Layers, Sparkles } from 'lucide-react';
 
 interface ProductCardProps {
@@ -17,13 +18,15 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
   onOpenProductModal,
   onQuickAdd,
 }) => {
-  // Check if product belongs to a category with Batch Modifier (e.g. Gorengan bumbu dipilih di checkout)
   const category = categories?.find((c) => c.id === product.categoryId);
-  const isBatchCategory = category?.batchModifierEnabled === true;
+  const orderingConfig = OrderEngine.getOrderingConfig(category);
+  const isOrderGroupCategory = orderingConfig.groupingEnabled === true;
+  const isLegacyBatchCategory = category?.batchModifierEnabled === true;
 
-  // Standalone modifier groups (excluding batch modifier group if managed at category level)
+  // Standalone modifier groups exclude the modifier that belongs to the category-level group.
+  const categoryModifierGroupId = orderingConfig.modifierGroupId || category?.batchModifierGroupId;
   const standaloneGroupIds = (product.modifierGroupIds || []).filter(
-    (gId) => !isBatchCategory || gId !== category?.batchModifierGroupId
+    (gId) => !isOrderGroupCategory && !isLegacyBatchCategory || gId !== categoryModifierGroupId
   );
   const prodModGroups = modifierGroups.filter(
     (g) => standaloneGroupIds.includes(g.id) && g.isActive
@@ -40,8 +43,15 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
     e.stopPropagation();
     if (!product.isAvailable) return;
 
-    // If product has category batch modifier and no standalone required modifiers, quick add directly with NO popup
-    if (isBatchCategory && !hasRequiredModifiers) {
+    // Order Group categories must be entered through the group selector so
+    // multiple products can share one group-level modifier.
+    if (isOrderGroupCategory) {
+      onQuickAdd(product);
+      return;
+    }
+
+    // Preserve legacy Batch Modifier behavior for existing categories.
+    if (isLegacyBatchCategory && !hasRequiredModifiers) {
       onQuickAdd(product);
     } else if (hasRequiredModifiers || standaloneGroupIds.length > 0) {
       onOpenProductModal(product);
@@ -55,7 +65,11 @@ const ProductCardComponent: React.FC<ProductCardProps> = ({
       id={`product-card-${product.id}`}
       onClick={() => {
         if (!product.isAvailable) return;
-        if (isBatchCategory && !hasRequiredModifiers && standaloneGroupIds.length === 0) {
+        if (isOrderGroupCategory) {
+          onQuickAdd(product);
+          return;
+        }
+        if (isLegacyBatchCategory && !hasRequiredModifiers && standaloneGroupIds.length === 0) {
           onQuickAdd(product);
         } else {
           onOpenProductModal(product);

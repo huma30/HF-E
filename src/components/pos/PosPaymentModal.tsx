@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CartItem, Order, PaymentMethod, ServiceType, SplitPayment, StoreSettings, Customer } from '../../types';
+import { CartItem, Order, PaymentMethod, ServiceType, SplitPayment, StoreSettings, Customer, OrderGroup } from '../../types';
 import { Modal } from '../common/Modal';
 import { FirestoreService } from '../../services/firestoreService';
 import { soundService } from '../../services/audioNotification';
@@ -10,6 +10,7 @@ interface PosPaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   items: CartItem[];
+  groups?: OrderGroup[];
   subtotal: number;
   discount: number;
   total: number;
@@ -22,6 +23,7 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
   isOpen,
   onClose,
   items,
+  groups = [],
   subtotal,
   discount,
   total,
@@ -147,6 +149,7 @@ export const PosPaymentModal: React.FC<PosPaymentModalProps> = ({
         },
         serviceType,
         items,
+        groups: groups.length > 0 ? groups : undefined,
         subtotal,
         discount: totalDiscount,
         deliveryFee: 0,

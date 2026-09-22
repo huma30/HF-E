@@ -1,6 +1,31 @@
 import { Order, StoreSettings, PointRedemption, Customer } from '../types';
 
 export class ReceiptService {
+  private static readonly DASH_LINE = '----------------------------------------';
+
+  private static getDisplayGroups(order: Order) {
+    return order.groups && order.groups.length > 0 ? order.groups : [];
+  }
+
+  private static appendGroupText(lines: string[], order: Order): void {
+    const groups = this.getDisplayGroups(order);
+    groups.forEach((group, index) => {
+      lines.push(`GROUP ${index + 1}${group.categoryId ? ` [${group.categoryId}]` : ''}`);
+      group.items.forEach((item) => {
+        const lineText = `${item.quantity}x ${item.name}`.padEnd(26, ' ') + `Rp ${item.subtotal.toLocaleString('id-ID')}`.padStart(14, ' ');
+        lines.push(lineText);
+        if (item.selectedModifiers?.length) lines.push(`   ↳ ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`);
+        if (item.notes?.trim()) lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
+      });
+      if (group.modifiers.length) {
+        lines.push(`   ↳ Bumbu: ${group.modifiers.map((m) => m.name).join(', ')}`);
+      }
+      if (group.note?.trim()) lines.push(`   ↳ Catatan Group: "${group.note.trim()}"`);
+      if (index < groups.length - 1) lines.push(ReceiptService.DASH_LINE);
+    });
+  }
+
+
   /**
    * Format standard thermal receipt text (58mm/80mm compatible)
    */
@@ -48,38 +73,31 @@ export class ReceiptService {
     lines.push('ITEM');
     lines.push(dashLine);
 
-    order.items.forEach((item) => {
-      const lineText = `${item.quantity}x ${item.productName}`.padEnd(26, ' ') + `Rp ${item.lineTotal.toLocaleString('id-ID')}`.padStart(14, ' ');
-      lines.push(lineText);
-
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
-        const modSummary = item.selectedModifiers.map((m) => m.item.name).join(', ');
-        lines.push(`   ↳ ${modSummary}`);
-      }
-
-      if (item.notes && item.notes.trim()) {
-        lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
-      }
-    });
-
-    if (order.batchModifiers && order.batchModifiers.length > 0) {
-      lines.push(dashLine);
-      lines.push('PILIHAN BUMBU:');
-      order.batchModifiers.forEach((bm) => {
-        const optionNames =
-          bm.selectedModifiers?.map((m) => m.modifierName) ||
-          bm.options.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName);
-        if (optionNames.length > 0) {
-          lines.push(` * ${bm.modifierGroupName || bm.categoryName}: ${optionNames.join(', ')}`);
-        }
+    if (order.groups && order.groups.length > 0) {
+      this.appendGroupText(lines, order);
+    } else {
+      order.items.forEach((item) => {
+        const lineText = `${item.quantity}x ${item.productName}`.padEnd(26, ' ') + `Rp ${item.lineTotal.toLocaleString('id-ID')}`.padStart(14, ' ');
+        lines.push(lineText);
+        if (item.selectedModifiers?.length) lines.push(`   ↳ ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`);
+        if (item.notes?.trim()) lines.push(`   ↳ Catatan: "${item.notes.trim()}"`);
       });
+      if (order.batchModifiers?.length) {
+        lines.push(dashLine);
+        lines.push('PILIHAN BUMBU:');
+        order.batchModifiers.forEach((bm) => {
+          const optionNames = bm.selectedModifiers?.map((m) => m.modifierName) || bm.options.filter((o) => (o.quantity ?? 1) > 0).map((o) => o.modifierName);
+          if (optionNames.length) lines.push(` * ${bm.modifierGroupName || bm.categoryName}: ${optionNames.join(', ')}`);
+        });
+      }
     }
 
     lines.push(dashLine);
-    lines.push('Subtotal'.padEnd(26, ' ') + `Rp ${order.subtotal.toLocaleString('id-ID')}`.padStart(14, ' '));
-    
+    lines.push('RINGKASAN PEMBAYARAN');
+    lines.push('Subtotal Semua Pesanan'.padEnd(26, ' ') + 'Rp ' + order.subtotal.toLocaleString('id-ID').padStart(14, ' '));
+
     if (order.discount > 0) {
-      lines.push(`Diskon ${order.promoCode ? `(${order.promoCode})` : ''}`.padEnd(26, ' ') + `-Rp ${order.discount.toLocaleString('id-ID')}`.padStart(14, ' '));
+      lines.push('Total Potongan'.padEnd(26, ' ') + '-Rp ' + order.discount.toLocaleString('id-ID').padStart(14, ' '));
     }
 
     if (order.serviceType === 'DELIVERY') {
@@ -99,7 +117,7 @@ export class ReceiptService {
     lines.push(`Pembayaran  : ${paymentLabel}`);
 
     if (order.amountPaid) {
-      lines.push(`Bayar       : Rp ${order.amountPaid.toLocaleString('id-ID')}`);
+      lines.push(`Uang Diterima: Rp ${order.amountPaid.toLocaleString('id-ID')}`);
       lines.push(`Kembali     : Rp ${(order.change || 0).toLocaleString('id-ID')}`);
     }
 
@@ -308,9 +326,20 @@ export class ReceiptService {
 
     // Estimate total canvas height
     const baseLineHeight = 22;
-    const itemCount = order.items.length;
-    const modCount = order.items.reduce((acc, i) => acc + (i.selectedModifiers?.length || 0), 0);
-    const estimatedLines = 26 + itemCount * 2 + modCount;
+    const itemCount = order.groups?.length
+      ? order.groups.reduce((sum, group) => sum + group.items.length, 0)
+      : order.items.length;
+    const groupCount = order.groups?.length || 0;
+    const modCount = order.groups?.length
+      ? order.groups.reduce(
+          (sum, group) =>
+            sum +
+            group.items.reduce((n, item) => n + (item.selectedModifiers?.length || 0), 0) +
+            (group.modifiers?.length || 0),
+          0
+        )
+      : order.items.reduce((acc, i) => acc + (i.selectedModifiers?.length || 0), 0);
+    const estimatedLines = 30 + itemCount * 3 + modCount + groupCount * 5;
     const totalHeight = padding * 2 + logoHeight + estimatedLines * baseLineHeight + (settings?.autoCutEnabled ? 40 : 0);
 
     // Render at 2x pixel ratio for sharp display & mobile clarity
@@ -413,31 +442,85 @@ export class ReceiptService {
     currentY += 18;
 
     ctx.font = '12px "Courier New", Courier, monospace';
-    order.items.forEach((item) => {
-      ctx.textAlign = 'left';
-      const itemTitle = `${item.quantity}x ${item.productName}`;
-      ctx.fillText(itemTitle, padding, currentY);
-      ctx.textAlign = 'right';
-      ctx.fillText(`Rp ${item.lineTotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
-      currentY += 16;
-
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
+    if (order.groups && order.groups.length > 0) {
+      order.groups.forEach((group, groupIndex) => {
         ctx.textAlign = 'left';
-        ctx.font = '11px "Courier New", Courier, monospace';
-        const modNames = item.selectedModifiers.map((m) => m.item.name).join(', ');
-        ctx.fillText(`   ↳ ${modNames}`, padding, currentY);
-        currentY += 15;
+        ctx.font = 'bold 12px "Courier New", Courier, monospace';
+        ctx.fillText(`GROUP ${groupIndex + 1}`, padding, currentY);
+        currentY += 16;
         ctx.font = '12px "Courier New", Courier, monospace';
-      }
 
-      if (item.notes && item.notes.trim()) {
+        group.items.forEach((item) => {
+          ctx.textAlign = 'left';
+          ctx.fillText(`${item.quantity}x ${item.name}`, padding, currentY);
+          ctx.textAlign = 'right';
+          ctx.fillText(`Rp ${item.subtotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
+          currentY += 16;
+
+          if (item.selectedModifiers?.length) {
+            ctx.textAlign = 'left';
+            ctx.font = '11px "Courier New", Courier, monospace';
+            ctx.fillText(`   ↳ Pilihan: ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`, padding, currentY);
+            currentY += 15;
+            ctx.font = '12px "Courier New", Courier, monospace';
+          }
+
+          if (item.notes?.trim()) {
+            ctx.textAlign = 'left';
+            ctx.font = '11px "Courier New", Courier, monospace';
+            ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+            currentY += 15;
+            ctx.font = '12px "Courier New", Courier, monospace';
+          }
+        });
+
         ctx.textAlign = 'left';
-        ctx.font = '11px "Courier New", Courier, monospace';
-        ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+        ctx.font = 'bold 11px "Courier New", Courier, monospace';
+        ctx.fillText(
+          `   BUMBU: ${group.modifiers?.length ? group.modifiers.map((m) => m.name).join(', ') : '-'}`,
+          padding,
+          currentY
+        );
         currentY += 15;
-        ctx.font = '12px "Courier New", Courier, monospace';
-      }
-    });
+
+        if (group.note?.trim()) {
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   Catatan Group: "${group.note.trim()}"`, padding, currentY);
+          currentY += 15;
+        }
+
+        currentY += 5;
+
+        if (groupIndex < order.groups!.length - 1) {
+          drawLine(currentY, '-');
+          currentY += 15;
+        }
+      });
+    } else {
+      order.items.forEach((item) => {
+        ctx.textAlign = 'left';
+        ctx.fillText(`${item.quantity}x ${item.productName}`, padding, currentY);
+        ctx.textAlign = 'right';
+        ctx.fillText(`Rp ${item.lineTotal.toLocaleString('id-ID')}`, paperWidth - padding, currentY);
+        currentY += 16;
+
+        if (item.selectedModifiers?.length) {
+          ctx.textAlign = 'left';
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   ↳ Pilihan: ${item.selectedModifiers.map((m) => m.item.name).join(', ')}`, padding, currentY);
+          currentY += 15;
+          ctx.font = '12px "Courier New", Courier, monospace';
+        }
+
+        if (item.notes?.trim()) {
+          ctx.textAlign = 'left';
+          ctx.font = '11px "Courier New", Courier, monospace';
+          ctx.fillText(`   ↳ Catatan: "${item.notes.trim()}"`, padding, currentY);
+          currentY += 15;
+          ctx.font = '12px "Courier New", Courier, monospace';
+        }
+      });
+    }
 
     if (order.batchModifiers && order.batchModifiers.length > 0) {
       drawLine(currentY, '-');
@@ -462,13 +545,14 @@ export class ReceiptService {
     drawLine(currentY, '-');
     currentY += 18;
 
-    // 5. Total Breakdown
-    drawRow('Subtotal', `Rp ${order.subtotal.toLocaleString('id-ID')}`);
+    // 5. Payment Breakdown
+    ctx.font = '12px "Courier New", Courier, monospace';
+    drawRow('Subtotal Semua Pesanan', 'Rp ' + order.subtotal.toLocaleString('id-ID'));
     if (order.discount > 0) {
-      drawRow(`Diskon ${order.promoCode ? `(${order.promoCode})` : ''}`, `-Rp ${order.discount.toLocaleString('id-ID')}`);
+      drawRow('Total Potongan', '-Rp ' + order.discount.toLocaleString('id-ID'));
     }
     if (order.serviceType === 'DELIVERY') {
-      drawRow('Ongkos Kirim', `Rp ${order.deliveryFee.toLocaleString('id-ID')}`);
+      drawRow('Ongkos Kirim', 'Rp ' + order.deliveryFee.toLocaleString('id-ID'));
     }
 
     drawLine(currentY, '=');
@@ -495,7 +579,7 @@ export class ReceiptService {
 
     drawRow('Metode Bayar', paymentLabel);
     if (order.amountPaid) {
-      drawRow('Diterima', `Rp ${order.amountPaid.toLocaleString('id-ID')}`);
+      drawRow('Uang Diterima', `Rp ${order.amountPaid.toLocaleString('id-ID')}`);
       drawRow('Kembali', `Rp ${(order.change || 0).toLocaleString('id-ID')}`);
     }
 
@@ -695,25 +779,38 @@ export class ReceiptService {
           <div class="row bold"><span>ITEM</span><span>TOTAL</span></div>
           <div class="divider"></div>
 
-          ${order.items.map(item => `
-            <div class="item-row">
-              <div class="row">
-                <span>${item.quantity}x ${item.productName}</span>
-                <span>Rp ${item.lineTotal.toLocaleString('id-ID')}</span>
+          ${order.groups && order.groups.length > 0
+            ? order.groups.map((group, index) => `
+              <div class="item-row" style="border-top: 1px dashed #999; padding-top: 5px; margin-top: 6px;">
+                <div class="bold">GROUP ${index + 1}</div>
+                ${group.items.map(item => `
+                  <div class="row">
+                    <span>${item.quantity}x ${item.name}</span>
+                    <span>Rp ${item.subtotal.toLocaleString('id-ID')}</span>
+                  </div>
+                  ${item.selectedModifiers?.length ? `<div class="mod-item">↳ Pilihan: ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>` : ''}
+                  ${item.notes?.trim() ? `<div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>` : ''}
+                `).join('')}
+                <div class="mod-item bold">🧂 Bumbu: ${group.modifiers?.length ? group.modifiers.map(m => m.name).join(', ') : '-'}</div>
+                ${group.note?.trim() ? `<div class="mod-item">↳ Catatan Group: "${group.note.trim()}"</div>` : ''}
               </div>
-              ${item.selectedModifiers && item.selectedModifiers.length > 0 ? `
-                <div class="mod-item">↳ ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>
-              ` : ''}
-              ${item.notes && item.notes.trim() ? `
-                <div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>
-              ` : ''}
-            </div>
-          `).join('')}
+            `).join('')
+            : order.items.map(item => `
+              <div class="item-row">
+                <div class="row">
+                  <span>${item.quantity}x ${item.productName}</span>
+                  <span>Rp ${item.lineTotal.toLocaleString('id-ID')}</span>
+                </div>
+                ${item.selectedModifiers?.length ? `<div class="mod-item">↳ Pilihan: ${item.selectedModifiers.map(m => m.item.name).join(', ')}</div>` : ''}
+                ${item.notes?.trim() ? `<div class="mod-item">↳ Catatan: "${item.notes.trim()}"</div>` : ''}
+              </div>
+            `).join('')}
 
           <div class="divider"></div>
-          <div class="row"><span>Subtotal</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
+          <div class="bold" style="margin-bottom: 3px;">RINGKASAN PEMBAYARAN</div>
+          <div class="row"><span>Subtotal Semua Pesanan</span><span>Rp ${order.subtotal.toLocaleString('id-ID')}</span></div>
           ${order.discount > 0 ? `
-            <div class="row"><span>Diskon ${order.promoCode ? `(${order.promoCode})` : ''}</span><span>-Rp ${order.discount.toLocaleString('id-ID')}</span></div>
+            <div class="row"><span>Total Potongan</span><span>-Rp ${order.discount.toLocaleString('id-ID')}</span></div>
           ` : ''}
           ${order.serviceType === 'DELIVERY' ? `
             <div class="row"><span>Ongkos Kirim</span><span>Rp ${order.deliveryFee.toLocaleString('id-ID')}</span></div>
@@ -728,7 +825,7 @@ export class ReceiptService {
 
           <div class="row"><span>Metode Bayar:</span><span>${paymentLabel}</span></div>
           ${order.amountPaid ? `
-            <div class="row"><span>Diterima:</span><span>Rp ${order.amountPaid.toLocaleString('id-ID')}</span></div>
+            <div class="row"><span>Uang Diterima:</span><span>Rp ${order.amountPaid.toLocaleString('id-ID')}</span></div>
             <div class="row"><span>Kembali:</span><span>Rp ${(order.change || 0).toLocaleString('id-ID')}</span></div>
           ` : ''}
 

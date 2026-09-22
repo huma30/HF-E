@@ -9,10 +9,11 @@
  * 6. Seed Data Integrity & Schema Validation
  */
 
-import { PricingEngine } from '../src/services/pricingEngine';
-import { errorService } from '../src/services/errorService';
 import { ReceiptService } from '../src/services/receiptService';
 import { WhatsAppService } from '../src/services/whatsappService';
+import { PricingEngine } from '../src/services/pricingEngine';
+import { OrderEngine } from '../src/services/orderEngine';
+import { errorService } from '../src/services/errorService';
 import {
   DEFAULT_PRODUCTS,
   DEFAULT_CATEGORIES,
@@ -21,7 +22,7 @@ import {
   DEFAULT_PROMOS,
   DEFAULT_STORE_SETTINGS,
 } from '../src/data/seedData';
-import { Product, Promo, Order, CartItem } from '../src/types';
+import { Product, Promo, Order, CartItem, Category } from '../src/types';
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -45,6 +46,265 @@ function assertEqual<T>(actual: T, expected: T, testName: string) {
     console.error(`  [FAIL] ${testName} (Expected: ${JSON.stringify(expected)}, Actual: ${JSON.stringify(actual)})`);
     testsFailed++;
   }
+}
+
+
+
+// 9. ORDER GROUP DOMAIN ENGINE
+console.log('\n9. Testing Order Group Domain Engine');
+{
+  const makeItem = (id: string, name: string, price: number, quantity: number): any => ({
+    id: `item-${id}`,
+    productId: id,
+    name,
+    basePrice: price,
+    unitPrice: price,
+    quantity,
+    selectedModifiers: [],
+    modifiersPrice: 0,
+    subtotal: price * quantity,
+  });
+
+  const group1 = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [
+      makeItem('bakwan', 'Bakwan', 2000, 2),
+      makeItem('tahu', 'Tahu', 1500, 2),
+      makeItem('tempe', 'Tempe', 1000, 1),
+    ],
+    modifiers: [{
+      modifierId: 'balado',
+      name: 'Balado',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 1000,
+      quantity: 1,
+    }],
+  });
+
+  const group2 = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [
+      makeItem('pisang', 'Pisang', 2500, 2),
+      makeItem('cireng', 'Cireng', 1500, 3),
+    ],
+    modifiers: [{
+      modifierId: 'bbq',
+      name: 'BBQ',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 1000,
+      quantity: 1,
+    }],
+  });
+
+  assertEqual(group1.subtotal, 9000, 'Group 1 subtotal includes modifier exactly once');
+  assertEqual(group2.subtotal, 10500, 'Group 2 subtotal is isolated from Group 1');
+  assertEqual(OrderEngine.calculateOrderSubtotal([group1, group2]), 19500, 'Multiple groups sum independently');
+
+  const updatedGroup1 = OrderEngine.updateGroup(group1, {
+    modifiers: [{
+      modifierId: 'pedas',
+      name: 'Pedas',
+      groupId: 'bumbu',
+      groupName: 'Bumbu',
+      price: 500,
+      quantity: 1,
+    }],
+  });
+  assert(updatedGroup1.id === group1.id, 'Editing a group keeps the same group id');
+  assertEqual(updatedGroup1.subtotal, 8500, 'Editing one group recalculates only that group');
+
+  const afterDelete = OrderEngine.deleteGroup([updatedGroup1, group2], updatedGroup1.id);
+  assertEqual(afterDelete.length, 1, 'Deleting a group removes only that group');
+  assert(afterDelete[0].id === group2.id, 'Other groups remain intact after deletion');
+
+  const emptyGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [],
+    modifiers: [],
+  });
+  assert(!OrderEngine.validateGroup(emptyGroup).valid, 'Empty Order Group is rejected');
+
+  const validationGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('uji', 'Item Uji', 2000, 1)],
+    modifiers: [],
+  });
+
+  const requiredCategory = {
+    id: 'gorengan',
+    name: 'Aneka Gorengan',
+    slug: 'gorengan',
+    sortOrder: 1,
+    isActive: true,
+    orderingConfig: {
+      groupingEnabled: true,
+      modifierEnabled: true,
+      modifierScope: 'group',
+      modifierRequired: true,
+      modifierMinSelection: 1,
+      modifierMaxSelection: 2,
+    },
+  } as Category;
+
+  const optionalCategory = {
+    ...requiredCategory,
+    orderingConfig: {
+      ...requiredCategory.orderingConfig,
+      modifierRequired: false,
+      modifierMinSelection: 0,
+    },
+  } as Category;
+
+  assert(
+    !OrderEngine.validateGroup(validationGroup, requiredCategory).valid,
+    'Order Group wajib bumbu ketika modifierRequired=true'
+  );
+
+  assert(
+    OrderEngine.validateGroup(validationGroup, optionalCategory).valid,
+    'Order Group boleh tanpa bumbu ketika modifierRequired=false'
+  );
+
+  const legacyOrder: Order = {
+    id: 'legacy-1',
+    orderNumber: '#HF-LEGACY',
+    createdAt: new Date().toISOString(),
+    source: 'WEB',
+    status: 'COMPLETED',
+    customer: { name: 'Legacy', whatsapp: '-' },
+    serviceType: 'TAKEAWAY',
+    items: [{
+      cartItemId: 'legacy-item',
+      productId: 'p1',
+      productName: 'Bakwan',
+      productImage: '',
+      basePrice: 2000,
+      unitPrice: 2000,
+      quantity: 2,
+      selectedModifiers: [],
+      modifiersPrice: 0,
+      lineTotal: 4000,
+      categoryId: 'gorengan',
+    }],
+    subtotal: 4000,
+    discount: 0,
+    deliveryFee: 0,
+    total: 4000,
+    paymentMethod: 'CASH',
+    amountPaid: 4000,
+    change: 0,
+  };
+  const normalized = OrderEngine.normalizeOrder(legacyOrder);
+  assertEqual(normalized.groups?.length, 1, 'Legacy flat order can be normalized to one group');
+  assertEqual(normalized.groups?.[0]?.subtotal, 4000, 'Legacy normalized group keeps original total');
+
+  const groupPromo = {
+    id: 'promo-group-mix',
+    code: 'GROUPMIX',
+    name: 'Group Mix & Match',
+    type: 'MIX_MATCH',
+    value: 1500,
+    minPurchase: 0,
+    usedCount: 0,
+    isActive: true,
+    isMixMatch: true,
+    mixMatchMinQty: 2,
+    mixMatchBundleQty: 2,
+    mixMatchRule: 'FULL_MULTIPLES',
+    mixMatchPromoPrice: 1500,
+    mixMatchDiscountType: 'FIXED_PRICE',
+    mixMatchDiscountValue: 1500,
+    mixMatchProductIds: ['bakwan', 'tahu', 'pisang'],
+    mixMatchCategoryIds: [],
+  } as Promo;
+
+  const groupedPricing = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([group1]),
+    [groupPromo]
+  );
+  assertEqual(groupedPricing.discount, 1000, 'Mix & Match applies to eligible products inside Order Group');
+  const threeEligible = OrderEngine.createGroup({ categoryId: 'gorengan', items: [makeItem('bakwan', 'Bakwan', 2000, 1), makeItem('tahu', 'Tahu', 1500, 1), makeItem('pisang', 'Pisang', 2500, 1)], modifiers: [] });
+  const threeEligiblePricing = PricingEngine.calculateMixMatchDiscounts(OrderEngine.flattenGroups([threeEligible]), [groupPromo]);
+  assertEqual(threeEligiblePricing.appliedBundles[0]?.itemsDiscountedCount, 2, '3 eligible items discounts only one complete pair');
+  assertEqual(threeEligiblePricing.discount, 500, 'Odd eligible quantity leaves one item at normal price');
+  const receiptOrder = {
+    orderNumber: 'TEST-GROUP-001',
+    createdAt: new Date().toISOString(),
+    customer: { name: 'Tester', whatsapp: '08123456789' },
+    serviceType: 'TAKEAWAY',
+    subtotal: 50000, discount: 9500, deliveryFee: 0, total: 40500,
+    paymentMethod: 'CASH', amountPaid: 50000, change: 9500, items: [], groups: [
+      { id: 'g1', categoryId: 'gorengan', items: [makeItem('sosis','Sosis',20000,1), makeItem('cikua','Cikua',15000,1)], modifiers: [{ modifierId:'saos', name:'Saos', groupId:'bumbu', groupName:'Bumbu', price:0, quantity:1 }], subtotal:35000, note:'' },
+      { id: 'g2', categoryId: 'gorengan', items: [makeItem('dumpling','Dumpling',15000,1)], modifiers: [{ modifierId:'pedas', name:'Pedas', groupId:'bumbu', groupName:'Bumbu', price:0, quantity:1 }], subtotal:15000, note:'' }
+    ]
+  } as any;
+  const receiptText = ReceiptService.formatTextReceipt(receiptOrder);
+  assert(receiptText.includes('GROUP 1') && receiptText.includes('Sosis') && receiptText.includes('Cikua') && receiptText.includes('Bumbu: Saos'), 'Receipt Group formatting includes bumbu');
+  assert(receiptText.includes('Subtotal Semua Pesanan') && receiptText.includes('Total Potongan') && receiptText.includes('Uang Diterima') && receiptText.includes('Kembali'), 'Receipt shows whole-note payment summary');
+  assert(!receiptText.includes('Subtotal Group') && !receiptText.includes('Setelah Potongan') && !receiptText.includes('Mix & Match:'), 'Receipt does not show per-group subtotal or discount details');
+  const waText = WhatsAppService.formatOrderMessage(receiptOrder);
+  assert(waText.includes('GROUP 1') && waText.includes('Sosis') && waText.includes('Cikua') && waText.includes('Bumbu: Saos') && waText.includes('GROUP 2') && waText.includes('Bumbu: Pedas'), 'WhatsApp Group formatting includes bumbu');
+
+
+  assertEqual(
+    groupedPricing.groupDiscounts?.[group1.id],
+    1000,
+    'Mix & Match discount is synchronized to the Order Group'
+  );
+  const splitGroupA = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('bakwan', 'Bakwan', 2000, 1)],
+    modifiers: [],
+  });
+  const splitGroupB = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('tahu', 'Tahu', 3000, 1)],
+    modifiers: [],
+  });
+  const nonEligibleGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('cireng', 'Cireng', 4000, 1)],
+    modifiers: [],
+  });
+  const splitAcrossGroups = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([splitGroupA, splitGroupB, nonEligibleGroup]),
+    [groupPromo]
+  );
+  assertEqual(splitAcrossGroups.discount, 2000, 'Mix & Match applies across all eligible Order Groups');
+  assertEqual(
+    (splitAcrossGroups.groupDiscounts?.[splitGroupA.id] || 0) +
+      (splitAcrossGroups.groupDiscounts?.[splitGroupB.id] || 0),
+    2000,
+    'All eligible Order Group allocations sum exactly to the cart discount'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[splitGroupA.id],
+    800,
+    'First eligible Order Group receives its allocated Mix & Match discount'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[splitGroupB.id],
+    1200,
+    'Second eligible Order Group receives its allocated Mix & Match discount'
+  );
+  assertEqual(
+    splitAcrossGroups.groupDiscounts?.[nonEligibleGroup.id] || 0,
+    0,
+    'Non-eligible Order Group keeps its normal price'
+  );
+
+  const belowMinimumGroup = OrderEngine.createGroup({
+    categoryId: 'gorengan',
+    items: [makeItem('bakwan', 'Bakwan', 2000, 1)],
+    modifiers: [],
+  });
+  const belowMinimumPricing = PricingEngine.calculateMixMatchDiscounts(
+    OrderEngine.flattenGroups([belowMinimumGroup]),
+    [groupPromo]
+  );
+  assertEqual(belowMinimumPricing.discount, 0, 'Mix & Match Order Group stays normal below minimum quantity');
 }
 
 console.log('\n======================================================');
@@ -93,6 +353,7 @@ console.log('1. Testing PricingEngine: Wholesale & Modifiers');
   // Line total
   assertEqual(PricingEngine.calculateLineTotal(13500, 5000, 5), (13500 + 5000) * 5, 'Line total (13.5k + 5k) * 5 = Rp 92.500');
 }
+
 
 // 2. PROMO & VOUCHER ENGINE TESTING
 console.log('\n2. Testing PricingEngine: Promo Vouchers');

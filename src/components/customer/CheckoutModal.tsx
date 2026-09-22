@@ -10,6 +10,7 @@ import {
   Category,
   ModifierGroup,
   BatchModifierSelection,
+  OrderGroup,
 } from '../../types';
 import { FirestoreService } from '../../services/firestoreService';
 import { PricingEngine } from '../../services/pricingEngine';
@@ -57,6 +58,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 }) => {
   const {
     items,
+    orderGroups,
     subtotal,
     discount,
     mixMatchDiscount,
@@ -93,7 +95,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const deliveryFee =
     serviceType === 'DELIVERY' && selectedDeliveryArea ? selectedDeliveryArea.deliveryFee : 0;
 
-  // Total
+  // Total is calculated by CartContext from legacy items + canonical Order Groups.
   const total = Math.max(0, subtotal - discount + deliveryFee);
 
   // Detect which categories in cart require Batch Modifiers
@@ -208,7 +210,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
-    // 2. Validate batch modifiers
+    // 2. Validate grouped order state first. Legacy batch validation remains below.
+    if (orderGroups.some((group) => !group.items.length)) {
+      setErrorMessage('Ada Order Group kosong. Hapus atau lengkapi group tersebut sebelum checkout.');
+      return;
+    }
     if (hasIncompleteBatchModifiers) {
       setErrorMessage('Mohon lengkapi pilihan bumbu sebelum melanjutkan pesanan.');
       return;
@@ -261,12 +267,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       const orderPayload: Omit<Order, 'id' | 'orderNumber' | 'createdAt'> = {
         source: 'WEB',
+        groups: orderGroups.length > 0 ? orderGroups : undefined,
         status: 'PENDING',
         customer: customerData,
         serviceType,
         items,
         subtotal,
         discount,
+        discountDetails: [
+          ...mixMatchBundles.map((b) => ({
+            label: `Mix & Match: ${b.promoName}`,
+            amount: b.discount,
+          })),
+          ...(appliedPromo && discount - mixMatchDiscount > 0
+            ? [{ label: `Voucher: ${appliedPromo.code}`, amount: discount - mixMatchDiscount }]
+            : []),
+        ].filter((detail) => detail.amount > 0),
         deliveryFee,
         total,
         paymentMethod,
